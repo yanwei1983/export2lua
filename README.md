@@ -8,10 +8,10 @@ need define a empty macro named export_lua,will gen export code which line "expo
 
 in cxx：  
 `#define export_lua`  
-`export_lua class test  
-{  
-export_lua test(){}  
-export_lua void member_func(int);  
-};  
-export_lua int global_func();`
+`export_lua class test`  
+`{`  
+`export_lua test(){}`  
+`export_lua void member_func(int);`  
+`};`  
+`export_lua int global_func();`  
 
