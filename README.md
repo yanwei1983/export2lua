@@ -6,12 +6,12 @@
 use libclang read cxx header file ，auto gen c++ code export to lua for luatinkerE  
 need define a empty macro named export_lua,will gen export code which line "export_lua" used 
 
-in cxx：
-#define export_lua
-export_lua class test
+in cxx：  
+`#define export_lua`  
+`export_lua class test
 {
 export_lua test(){}
 export_lua void member_func(int);
 };
-export_lua int global_func();
+export_lua int global_func();`
 
