@@ -30,6 +30,8 @@ struct Visitor_Content
 		m_setChild.clear();
 	}
 
+	bool bClass = false;
+	bool bNameSpace = false;
 	std::string m_name;
 	Visitor_Content* m_pParent = nullptr;
 	std::set<Visitor_Content*> m_setChild;
@@ -38,6 +40,7 @@ struct Visitor_Content
 	{
 		bool is_static;
 		std::string func_type;
+		std::string funcptr_type;
 		ParamsDefaultVal default_val;
 	};
 	std::map<std::string, std::vector<OverLoadData> > m_vecFuncName;
@@ -102,6 +105,22 @@ void visit_function(CXCursor cursor, Visitor_Content* pContent)
 	std::string typestr = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
 	auto& refSetOverLoad = pContent->m_vecFuncName[nsname];
 	Visitor_Content::OverLoadData overload_data;
+	{
+		overload_data.funcptr_type += clang_getCString(clang_getTypeSpelling(clang_getResultType(clang_getCursorType(cursor))));
+
+		if (pContent->bClass == true)
+		{
+			overload_data.funcptr_type += "(";
+			overload_data.funcptr_type += pContent->m_name;
+			overload_data.funcptr_type += "::*)(";
+
+		}
+		else
+		{
+			overload_data.funcptr_type += "(*)(";
+		}
+		
+	}
 	overload_data.func_type = typestr;
 	overload_data.is_static = clang_CXXMethod_isStatic(cursor) != 0;
 	//reg gloabl_func
@@ -110,12 +129,17 @@ void visit_function(CXCursor cursor, Visitor_Content* pContent)
 		for (int i = 0; i < nArgs; i++)
 		{
 			CXCursor args_cursor = clang_Cursor_getArgument(cursor, i);
+
+			overload_data.funcptr_type += clang_getCString(clang_getTypeSpelling(clang_getCursorType(args_cursor)));
+			if(i < nArgs-1)
+				overload_data.funcptr_type += ", ";
+
 			std::string default_val = visit_param(args_cursor, i);
 			if (default_val.empty() == false)
 				overload_data.default_val.push_back(default_val);
 		}
 	}
-
+	overload_data.funcptr_type += ")";
 	refSetOverLoad.emplace_back(std::move(overload_data));
 
 
@@ -140,13 +164,14 @@ void visit_constructor(CXCursor cursor, Visitor_Content* pContent)
 	std::string typestr = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
 	auto& refSetOverLoad = pContent->m_vecConName[nsname];
 	Visitor_Content::OverLoadData overload_data;
-	overload_data.func_type = typestr;
 	//reg gloabl_func
 	int nArgs = clang_Cursor_getNumArguments(cursor);
 	{
 		for (int i = 0; i < nArgs; i++)
 		{
 			CXCursor args_cursor = clang_Cursor_getArgument(cursor, i);
+			overload_data.func_type += ", ";
+			overload_data.func_type += clang_getCString(clang_getTypeSpelling(clang_getCursorType(args_cursor)));
 			std::string default_val = visit_param(args_cursor, i);
 			if (default_val.empty() == false)
 				overload_data.default_val.push_back(default_val);
@@ -239,6 +264,7 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			{
 				//reg class
 				Visitor_Content* pNewContent = new Visitor_Content(nsname, pContent);
+				pNewContent->bClass = true;
 				clang_visitChildren(cursor, &TU_visitor, pNewContent);
 			}
 
@@ -384,67 +410,124 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 void visit_contnet(Visitor_Content* pContent, std::string& os)
 {
 	char szBuf[4096];
+	//class add
+	if(pContent->bClass)
+	{
+		sprintf_s(szBuf, 4096, "luatinker::class_add<%s>(L, \"%s\",true);\n", pContent->m_name.c_str(), pContent->m_name.c_str());	//class_add
+		os += szBuf;
+	}
 	//global_func
 	if (pContent->m_name.empty())
 	{
-		for (const auto& v : pContent->m_vecFuncName)
+		if (pContent->bClass == false)
 		{
-			const auto& refDataSet = v.second;
-			if (refDataSet.size() == 1) //no overload
+			for (const auto& v : pContent->m_vecFuncName)
 			{
-				const auto& refData = refDataSet[0];
-				if (refData.default_val.empty())
+				const auto& refDataSet = v.second;
+				if (refDataSet.size() == 1) //no overload
 				{
-					sprintf_s(szBuf, 4096, "luatinker::def(L, \"%s\",&%s);\n", v.first.c_str(), v.first.c_str());	//normal
-					os += szBuf;
+					const auto& refData = refDataSet[0];
+					if (refData.default_val.empty())
+					{
+						sprintf_s(szBuf, 4096, "luatinker::def(L, \"%s\",&%s);\n", v.first.c_str(), v.first.c_str());	//normal
+						os += szBuf;
+					}
+					else
+					{
+						std::string def_params;
+						for (const auto& dv : refData.default_val)
+						{
+							if (def_params.empty() == false)
+								def_params += ", ";
+							def_params += dv;
+						}
+						sprintf_s(szBuf, 4096, "luatinker::def(L, \"%s\",&%s, %s);\n", v.first.c_str(), v.first.c_str(), def_params.c_str());
+						os += szBuf;
+					}
+
 				}
 				else
 				{
-					std::string def_params;
-					for (const auto& dv : refData.default_val)
+					//overload
+					std::string overload_params;
+					for (const auto& refData : refDataSet)
 					{
-						if (def_params.empty() == false)
-							def_params += ", ";
-						def_params += dv;
+						std::string def_params;
+						for (const auto& dv : refData.default_val)
+						{
+							if (def_params.empty() == false)
+								def_params += ", ";
+							def_params += dv;
+						}
+						if (overload_params.empty() == false)
+							overload_params += " ,";
+						sprintf_s(szBuf, 4096, "(%s)(&%s)", refData.funcptr_type.c_str(), v.first.c_str());
+						overload_params += szBuf;
 					}
-					sprintf_s(szBuf, 4096, "luatinker::def(L, \"%s\",&%s, %s);\n", v.first.c_str(), v.first.c_str(), def_params.c_str());
+
+					sprintf_s(szBuf, 4096, "luatinker::def(L, \"%s\", lua_tinker::args_type_overload_functor(%s));\n", v.first.c_str(), overload_params.c_str());
 					os += szBuf;
 				}
 
+
 			}
-			else
+		}
+		else
+		{
+			for (const auto& v : pContent->m_vecFuncName)
 			{
-				//overload
-				std::string overload_params;
-				for (const auto& refData : refDataSet)
+				const auto& refDataSet = v.second;
+				if (refDataSet.size() == 1) //no overload
 				{
-					std::string def_params;
-					for (const auto& dv : refData.default_val)
+					const auto& refData = refDataSet[0];
+					if (refData.default_val.empty())
 					{
-						if (def_params.empty() == false)
-							def_params += ", ";
-						def_params += dv;
+						sprintf_s(szBuf, 4096, "luatinker::def(L, \"%s\",&%s::%s);\n", v.first.c_str(), pContent->m_name.c_str(), v.first.c_str());	//normal
+						os += szBuf;
 					}
-					if (overload_params.empty() == false)
-						overload_params += " ,";
-					sprintf_s(szBuf, 4096, "(%s)(&%s)", refData.func_type.c_str(), v.first.c_str());
-					overload_params += szBuf;
+					else
+					{
+						std::string def_params;
+						for (const auto& dv : refData.default_val)
+						{
+							if (def_params.empty() == false)
+								def_params += ", ";
+							def_params += dv;
+						}
+						sprintf_s(szBuf, 4096, "luatinker::def(L, \"%s\",&%s::%s, %s);\n", v.first.c_str(), pContent->m_name.c_str(), v.first.c_str(), def_params.c_str());
+						os += szBuf;
+					}
+
+				}
+				else
+				{
+					//overload
+					std::string overload_params;
+					for (const auto& refData : refDataSet)
+					{
+						std::string def_params;
+						for (const auto& dv : refData.default_val)
+						{
+							if (def_params.empty() == false)
+								def_params += ", ";
+							def_params += dv;
+						}
+						if (overload_params.empty() == false)
+							overload_params += " ,";
+						sprintf_s(szBuf, 4096, "(%s)(&%s::%s)", refData.funcptr_type.c_str(), pContent->m_name.c_str(),v.first.c_str());
+						overload_params += szBuf;
+					}
+
+					sprintf_s(szBuf, 4096, "luatinker::def(L, \"%s\", lua_tinker::args_type_overload_functor(%s));\n", v.first.c_str(), overload_params.c_str());
+					os += szBuf;
 				}
 
-				sprintf_s(szBuf, 4096, "luatinker::def(L, \"%s\", lua_tinker::args_type_overload_functor(%s));\n", v.first.c_str(), overload_params.c_str());
-				os += szBuf;
+
 			}
-
-
 		}
 	}
 	else
 	{
-		//class add
-		{
-			sprintf_s(szBuf, 4096, "luatinker::class_add<%s>(L, \"%s\",true);\n", pContent->m_name.c_str(), pContent->m_name.c_str());	//class_add
-			os += szBuf;
-		}
 		//class CXXMethod
 		for (const auto& v : pContent->m_vecFuncName)
 		{
@@ -492,7 +575,7 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 					}
 					if (overload_params.empty() == false)
 						overload_params += " ,";
-					sprintf_s(szBuf, 4096, "(%s)(&%s::%s)", refData.func_type.c_str(), pContent->m_name.c_str(), v.first.c_str());
+					sprintf_s(szBuf, 4096, "(%s)(&%s::%s)", refData.funcptr_type.c_str(), pContent->m_name.c_str(), v.first.c_str());
 					overload_params += szBuf;
 				}
 				
@@ -604,22 +687,39 @@ int main(int argc, char** argv)
 		return 0;
 	}
 
-	CXIndex Index = clang_createIndex(0, 0);
+	const char* szParam[] =
+	{
+		"-xc++",
+	};
+	std::string os;
+	char szBuf[4096];
+	os += "//this file was auto generated, plz don't modify it\n";
 
-	TU = clang_parseTranslationUnit(Index, argv[1], argv + 2, argc - 2,
-		0, 0, CXTranslationUnit_DetailedPreprocessingRecord);
-
-
-	CXCursor C = clang_getTranslationUnitCursor(TU);
 	Visitor_Content content;
-	clang_visitChildren(C, TU_visitor, &content);
+	CXIndex Index = clang_createIndex(0, 0);
+	int nIdx = 1;
+	while (nIdx < argc)
+	{
+		TU = clang_parseTranslationUnit(Index, argv[nIdx], (const char**)&szParam, 1,
+			0, 0, CXTranslationUnit_DetailedPreprocessingRecord | CXTranslationUnit_SkipFunctionBodies);
 
-	clang_disposeTranslationUnit(TU);
 
+		CXCursor C = clang_getTranslationUnitCursor(TU);
+		clang_visitChildren(C, TU_visitor, &content);
+
+		clang_disposeTranslationUnit(TU);
+		sprintf_s(szBuf, 4096, "#include \"%s\"\n", argv[nIdx]);	//normal
+		os += szBuf;
+
+		nIdx++;
+	}
 	clang_disposeIndex(Index);
 
-	std::string os;
+	os += "void export_to_lua()\n";
+	os += "{\n";
+
 	visit_contnet(&content,os);
+	os += "}\n";
 
 	printf("%s", os.c_str());
 	return 0;
