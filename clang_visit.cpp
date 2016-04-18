@@ -16,7 +16,7 @@ struct Visitor_Content
 		,m_accessname(accessname)
 	{
 		if (m_pParent)
-			m_pParent->m_setChild.insert(this);
+			m_pParent->m_setChild.push_back(this);
 	}
 	~Visitor_Content()
 	{
@@ -70,7 +70,7 @@ struct Visitor_Content
 	std::string m_name;
 	std::string m_accessname;
 	Visitor_Content* m_pParent = nullptr;
-	std::set<Visitor_Content*> m_setChild;
+	std::vector<Visitor_Content*> m_setChild;
 	typedef std::vector<std::string> ParamsDefaultVal;
 	struct OverLoadData
 	{
@@ -473,6 +473,13 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 		sprintf_s(szBuf, 4096, "lua_tinker::class_add<%s>(L, \"%s\",true);\n", pContent->getAccessName().c_str(), pContent->getWholeName().c_str());	//class_add
 		os += szBuf;
 	}
+	for (const auto& v : pContent->m_vecInhName)
+	{
+
+		sprintf_s(szBuf, 4096, "lua_tinker::class_inh<%s,%s>(L);\n", pContent->getAccessName().c_str(), v.c_str());
+		os += szBuf;
+	}
+
 	//global_func
 
 	if (pContent->bClass == false)
@@ -661,12 +668,6 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 		}
 	}
 
-	for (const auto& v : pContent->m_vecInhName)
-	{
-		
-		sprintf_s(szBuf, 4096, "lua_tinker::class_inh<%s,%s>(L);\n", pContent->getAccessName().c_str(), v.c_str());
-		os += szBuf;
-	}
 	for (const auto& v : pContent->m_vecEnumName)
 	{
 		sprintf_s(szBuf, 4096, "lua_tinker::set(L, \"%s\",%s);\n", (pContent->getWholeName() +v).c_str(), (pContent->getAccessPrifix() +v).c_str());
