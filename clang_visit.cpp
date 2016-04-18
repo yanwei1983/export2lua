@@ -11,8 +11,9 @@
 
 struct Visitor_Content
 {
-	Visitor_Content(std::string name = "", Visitor_Content* pParent = nullptr)
+	Visitor_Content(std::string name = "", Visitor_Content* pParent = nullptr, std::string accessname="")
 		:m_name(name), m_pParent(pParent)
+		,m_accessname(accessname)
 	{
 		if (m_pParent)
 			m_pParent->m_setChild.insert(this);
@@ -38,28 +39,36 @@ struct Visitor_Content
 	}
 	std::string getAccessName()
 	{
-		if (m_pParent == nullptr)
-			return m_name;
-		if (m_pParent->getAccessName().empty())
+		if (bNameSpace)
 		{
-			return m_name;
+			return m_pParent->getAccessName() + "::" + m_accessname;
 		}
-		else
-		{
-			return m_pParent->getAccessName() + "::" + m_name;
-		}
+		return m_accessname;
 	}
 	std::string getAccessPrifix()
 	{
-		if (getAccessName().empty())
+		if (bNameSpace)
+		{
+			if(m_pParent->getAccessPrifix().empty())
+				return m_accessname + "::";
+			return m_pParent->getAccessPrifix() + m_accessname + "::";
+		}
+		if(m_accessname.empty())
 			return "";
-		else
-			return getAccessName() + "::";
+		return m_accessname + "::";
+	}
+
+	std::string getWholePrifix()
+	{
+		if (m_pParent == nullptr)
+			return "";
+		return m_pParent->getWholeName();
 	}
 
 	bool bClass = false;
 	bool bNameSpace = false;
 	std::string m_name;
+	std::string m_accessname;
 	Visitor_Content* m_pParent = nullptr;
 	std::set<Visitor_Content*> m_setChild;
 	typedef std::vector<std::string> ParamsDefaultVal;
@@ -138,7 +147,7 @@ void visit_function(CXCursor cursor, Visitor_Content* pContent)
 		if (pContent->bClass == true)
 		{
 			overload_data.funcptr_type += "(";
-			overload_data.funcptr_type += pContent->m_name;
+			overload_data.funcptr_type += pContent->getAccessName();
 			overload_data.funcptr_type += "::*)(";
 
 		}
@@ -167,6 +176,10 @@ void visit_function(CXCursor cursor, Visitor_Content* pContent)
 		}
 	}
 	overload_data.funcptr_type += ")";
+	if (clang_CXXMethod_isConst(cursor))
+	{
+		overload_data.funcptr_type += "const";
+	}
 	refSetOverLoad.emplace_back(std::move(overload_data));
 
 
@@ -249,6 +262,7 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 	case CXCursor_MacroExpansion:
 		{
 			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
+			std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
 			if (nsname == "export_lua")
 			{
 				CXFile file;
@@ -266,9 +280,11 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 	case CXCursor_Namespace:
 		{
 			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
+			std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
 
 			//reg class
-			Visitor_Content* pNewContent = new Visitor_Content(nsname, pContent);
+			Visitor_Content* pNewContent = new Visitor_Content(nsname, pContent, nsname);
+			pNewContent->bNameSpace = true;
 			clang_visitChildren(cursor, &TU_visitor, pNewContent);
 
 		}
@@ -279,6 +295,7 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 	case CXCursor_ClassDecl:
 		{
 			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
+			std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
 
 			CXFile file;
 			unsigned line;
@@ -290,7 +307,7 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			if (refSet.find(line) != refSet.end())
 			{
 				//reg class
-				Visitor_Content* pNewContent = new Visitor_Content(nsname, pContent);
+				Visitor_Content* pNewContent = new Visitor_Content(nsname, pContent, tname);
 				pNewContent->bClass = true;
 				clang_visitChildren(cursor, &TU_visitor, pNewContent);
 			}
@@ -300,6 +317,8 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 	case CXCursor_CXXMethod:
 		{
 			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
+			std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
+
 			CXFile file;
 			unsigned line;
 			unsigned column;
@@ -316,6 +335,8 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 	case CXCursor_Constructor:
 		{
 			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
+			std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
+
 			CXFile file;
 			unsigned line;
 			unsigned column;
@@ -337,6 +358,8 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 	case CXCursor_FieldDecl:
 		{
 			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
+			std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
+
 			CXFile file;
 			unsigned line;
 			unsigned column;
@@ -353,7 +376,8 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 	case CXCursor_CXXBaseSpecifier:
 		{
 			//reg inh
-			std::string nsname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
+			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
+			std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
 			CXFile file;
 			unsigned line;
 			unsigned column;
@@ -363,7 +387,7 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			auto& refSet = g_export_loc[filename];
 			if (refSet.find(line) != refSet.end())
 			{
-				pContent->m_vecInhName.push_back(nsname);
+				pContent->m_vecInhName.push_back(tname);
 			}
 		}
 		break;
@@ -371,6 +395,7 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 	case CXCursor_EnumConstantDecl:
 		{
 			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
+			std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
 
 			CXFile file;
 			unsigned line;
@@ -390,6 +415,7 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 	case CXCursor_VarDecl:
 		{
 			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
+			std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
 
 			CXFile file;
 			unsigned line;
@@ -409,6 +435,9 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 		break;
 	case CXCursor_FunctionDecl:
 		{
+			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
+			std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
+
 			CXFile file;
 			unsigned line;
 			unsigned column;
@@ -440,7 +469,7 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 	//class add
 	if(pContent->bClass)
 	{
-		sprintf_s(szBuf, 4096, "luatinker::class_add<%s>(L, \"%s\",true);\n", pContent->getAccessName().c_str(), pContent->getWholeName().c_str());	//class_add
+		sprintf_s(szBuf, 4096, "lua_tinker::class_add<%s>(L, \"%s\",true);\n", pContent->getAccessName().c_str(), pContent->getWholeName().c_str());	//class_add
 		os += szBuf;
 	}
 	//global_func
@@ -455,7 +484,7 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 				const auto& refData = refDataSet[0];
 				if (refData.default_val.empty())
 				{
-					sprintf_s(szBuf, 4096, "luatinker::def(L, \"%s\",&%s);\n", (pContent->getWholeName() + v.first).c_str(), (pContent->getAccessPrifix() +v.first).c_str());	//normal
+					sprintf_s(szBuf, 4096, "lua_tinker::def(L, \"%s\",&%s);\n", (pContent->getWholeName() + v.first).c_str(), (pContent->getAccessPrifix() +v.first).c_str());	//normal
 					os += szBuf;
 				}
 				else
@@ -467,7 +496,7 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 							def_params += ", ";
 						def_params += dv;
 					}
-					sprintf_s(szBuf, 4096, "luatinker::def(L, \"%s\",&%s, %s);\n", (pContent->getWholeName() + v.first).c_str(), (pContent->getAccessPrifix() + v.first).c_str(), def_params.c_str());
+					sprintf_s(szBuf, 4096, "lua_tinker::def(L, \"%s\",&%s, %s);\n", (pContent->getWholeName() + v.first).c_str(), (pContent->getAccessPrifix() + v.first).c_str(), def_params.c_str());
 					os += szBuf;
 				}
 
@@ -486,12 +515,12 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 						def_params += dv;
 					}
 					if (overload_params.empty() == false)
-						overload_params += " ,";
-					sprintf_s(szBuf, 4096, "(%s)(&%s)", refData.funcptr_type.c_str(), (pContent->getAccessPrifix()+ v.first).c_str());
+						overload_params += ", ";
+					sprintf_s(szBuf, 4096, "\nlua_tinker::make_functor_ptr((%s)(&%s))", refData.funcptr_type.c_str(), (pContent->getAccessPrifix()+ v.first).c_str());
 					overload_params += szBuf;
 				}
 
-				sprintf_s(szBuf, 4096, "luatinker::def(L, \"%s\", lua_tinker::args_type_overload_functor(%s));\n", (pContent->getWholeName() + v.first).c_str(), overload_params.c_str());
+				sprintf_s(szBuf, 4096, "lua_tinker::def(L, \"%s\", lua_tinker::args_type_overload_functor(%s));\n", (pContent->getWholeName() + v.first).c_str(), overload_params.c_str());
 				os += szBuf;
 			}
 
@@ -510,9 +539,9 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 				if (refData.default_val.empty())
 				{
 					if(refData.is_static)
-						sprintf_s(szBuf, 4096, "luatinker::class_def_static<%s>(L, \"%s\",&%s);\n", pContent->getAccessName().c_str(), v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str());	//normal
+						sprintf_s(szBuf, 4096, "lua_tinker::class_def_static<%s>(L, \"%s\",&%s);\n", pContent->getAccessName().c_str(), v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str());	//normal
 					else
-						sprintf_s(szBuf, 4096, "luatinker::class_def<%s>(L, \"%s\",&%s);\n", pContent->getAccessName().c_str(), v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str());	//normal
+						sprintf_s(szBuf, 4096, "lua_tinker::class_def<%s>(L, \"%s\",&%s);\n", pContent->getAccessName().c_str(), v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str());	//normal
 					os += szBuf;
 				}
 				else
@@ -525,9 +554,9 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 						def_params += dv;
 					}
 					if (refData.is_static)
-						sprintf_s(szBuf, 4096, "luatinker::class_def_static<%s>(L, \"%s\",&%s, %s);\n", pContent->getAccessName().c_str(),  v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str(), def_params.c_str());
+						sprintf_s(szBuf, 4096, "lua_tinker::class_def_static<%s>(L, \"%s\",&%s, %s);\n", pContent->getAccessName().c_str(),  v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str(), def_params.c_str());
 					else
-						sprintf_s(szBuf, 4096, "luatinker::class_def<%s>(L, \"%s\",&%s, %s);\n", pContent->getAccessName().c_str(),  v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str(), def_params.c_str());
+						sprintf_s(szBuf, 4096, "lua_tinker::class_def<%s>(L, \"%s\",&%s, %s);\n", pContent->getAccessName().c_str(),  v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str(), def_params.c_str());
 					os += szBuf;
 				}
 
@@ -546,12 +575,12 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 						def_params += dv;
 					}
 					if (overload_params.empty() == false)
-						overload_params += " ,";
-					sprintf_s(szBuf, 4096, "(%s)(&%s)", refData.funcptr_type.c_str(), (pContent->getAccessPrifix() + v.first).c_str());
+						overload_params += ", ";
+					sprintf_s(szBuf, 4096, "\nlua_tinker::make_member_functor_ptr((%s)(&%s))", refData.funcptr_type.c_str(), (pContent->getAccessPrifix() + v.first).c_str());
 					overload_params += szBuf;
 				}
 				
-				sprintf_s(szBuf, 4096, "luatinker::class_def<%s>(L, \"%s\", lua_tinker::args_type_overload_member_functor(%s));\n",
+				sprintf_s(szBuf, 4096, "lua_tinker::class_def<%s>(L, \"%s\", lua_tinker::args_type_overload_member_functor(%s));\n",
 					pContent->getAccessName().c_str(), v.first.c_str(), overload_params.c_str());
 				
 
@@ -570,7 +599,7 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 			const auto& refData = refDataSet[0];
 			if (refData.default_val.empty())
 			{
-				sprintf_s(szBuf, 4096, "luatinker::class_con<%s>(L, lua_tinker::constructor<%s%s>::invoke);\n", pContent->getAccessName().c_str(), pContent->getAccessName().c_str(), refData.func_type.c_str());	//normal
+				sprintf_s(szBuf, 4096, "lua_tinker::class_con<%s>(L, lua_tinker::constructor<%s%s>::invoke);\n", pContent->getAccessName().c_str(), pContent->getAccessName().c_str(), refData.func_type.c_str());	//normal
 				os += szBuf;
 			}
 			else
@@ -582,7 +611,7 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 						def_params += ", ";
 					def_params += dv;
 				}
-				sprintf_s(szBuf, 4096, "luatinker::class_con<%s>(L, lua_tinker::constructor<%s%s>::invoke, %s);\n", pContent->getAccessName().c_str(), pContent->getAccessName().c_str(), refData.func_type.c_str(), def_params.c_str());	//normal
+				sprintf_s(szBuf, 4096, "lua_tinker::class_con<%s>(L, lua_tinker::constructor<%s%s>::invoke, %s);\n", pContent->getAccessName().c_str(), pContent->getAccessName().c_str(), refData.func_type.c_str(), def_params.c_str());	//normal
 				os += szBuf;
 			}
 
@@ -600,13 +629,13 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 						def_params += ", ";
 					def_params += dv;
 				}
-				sprintf_s(szBuf, 4096, "lua_tinker::constructor<%s%s>()", pContent->getAccessName().c_str(), refData.func_type.c_str());	//normal
+				sprintf_s(szBuf, 4096, "\nnew lua_tinker::constructor<%s%s>()", pContent->getAccessName().c_str(), refData.func_type.c_str());	//normal
 				if (overload_params.empty() == false)
 					overload_params += ", ";
 				overload_params += szBuf;
 			}
 
-			sprintf_s(szBuf, 4096, "luatinker::class_con<%s>(L,lua_tinker::args_type_overload_constructor(%s))\n", pContent->getAccessName().c_str(), overload_params.c_str());
+			sprintf_s(szBuf, 4096, "lua_tinker::class_con<%s>(L,lua_tinker::args_type_overload_constructor(%s));\n", pContent->getAccessName().c_str(), overload_params.c_str());
 			os += szBuf;
 		}
 
@@ -617,7 +646,7 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 	{
 		for (const auto& v : pContent->m_vecValName)
 		{
-			sprintf_s(szBuf, 4096, "luatinker::set(L,\"%s\",%s);\n", (pContent->getWholeName()+v.first).c_str(), (pContent->getAccessPrifix() +v.first).c_str());
+			sprintf_s(szBuf, 4096, "lua_tinker::set(L,\"%s\",%s);\n", (pContent->getWholeName()+v.first).c_str(), (pContent->getAccessPrifix() +v.first).c_str());
 			os += szBuf;
 		}
 	}
@@ -626,21 +655,22 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 		for (const auto& v : pContent->m_vecValName)
 		{
 			if(v.second == true)
-				sprintf_s(szBuf, 4096, "luatinker::class_mem_static<%s>(L,\"%s\",&%s);\n", pContent->getAccessName().c_str(), (pContent->getWholeName()+v.first).c_str(), (pContent->getAccessPrifix() + v.first).c_str());
+				sprintf_s(szBuf, 4096, "lua_tinker::class_mem_static<%s>(L,\"%s\",&%s);\n", pContent->getAccessName().c_str(), (pContent->getWholeName()+v.first).c_str(), (pContent->getAccessPrifix() + v.first).c_str());
 			else
-				sprintf_s(szBuf, 4096, "luatinker::class_mem<%s>(L,\"%s\",&%s);\n", pContent->getAccessName().c_str(), (pContent->getWholeName()+v.first).c_str(), (pContent->getAccessPrifix() +v.first).c_str());
+				sprintf_s(szBuf, 4096, "lua_tinker::class_mem<%s>(L,\"%s\",&%s);\n", pContent->getAccessName().c_str(), (pContent->getWholeName()+v.first).c_str(), (pContent->getAccessPrifix() +v.first).c_str());
 			os += szBuf;
 		}
 	}
 
 	for (const auto& v : pContent->m_vecInhName)
 	{
-		sprintf_s(szBuf, 4096, "luatinker::class_inh<%s,%s>(L);\n",  pContent->getWholeName().c_str(), (pContent->getWholeName() + v).c_str());
+		
+		sprintf_s(szBuf, 4096, "lua_tinker::class_inh<%s,%s>(L);\n", pContent->getAccessName().c_str(), v.c_str());
 		os += szBuf;
 	}
 	for (const auto& v : pContent->m_vecEnumName)
 	{
-		sprintf_s(szBuf, 4096, "luatinker::set(L, \"%s\",%s);\n", (pContent->getWholeName() +v).c_str(), (pContent->getAccessPrifix() +v).c_str());
+		sprintf_s(szBuf, 4096, "lua_tinker::set(L, \"%s\",%s);\n", (pContent->getWholeName() +v).c_str(), (pContent->getAccessPrifix() +v).c_str());
 		os += szBuf;
 	}
 
@@ -666,6 +696,7 @@ int main(int argc, char** argv)
 	std::string os;
 	char szBuf[4096];
 	os += "//this file was auto generated, plz don't modify it\n";
+	os += "#include \"lua_tinker.h\"\n";
 
 	Visitor_Content content;
 	CXIndex Index = clang_createIndex(0, 0);
@@ -687,7 +718,7 @@ int main(int argc, char** argv)
 	}
 	clang_disposeIndex(Index);
 
-	os += "void export_to_lua()\n";
+	os += "void export_to_lua_auto(lua_State* L)\n";
 	os += "{\n";
 
 	visit_contnet(&content,os);
