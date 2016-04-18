@@ -631,7 +631,7 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 				}
 				if (refData.default_val.empty() == false)
 				{
-					sprintf_s(szBuf, 4096, ",%u /*default_args_count*/, %u /*default_args_start*/ ", refData.default_val.size(), nDefaultParamsStart);
+					sprintf_s(szBuf, 4096, "%u /*default_args_count*/, %u /*default_args_start*/ ", refData.default_val.size(), nDefaultParamsStart);
 					nDefaultParamsStart += refData.default_val.size();
 					def_params_decl = szBuf;
 				}
