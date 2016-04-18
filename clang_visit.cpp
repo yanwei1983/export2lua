@@ -463,6 +463,7 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 	return CXChildVisit_Continue;
 }
 
+
 void visit_contnet(Visitor_Content* pContent, std::string& os)
 {
 	char szBuf[4096];
@@ -482,45 +483,45 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 			if (refDataSet.size() == 1) //no overload
 			{
 				const auto& refData = refDataSet[0];
-				if (refData.default_val.empty())
+				std::string def_params;
+				for (const auto& dv : refData.default_val)
 				{
-					sprintf_s(szBuf, 4096, "lua_tinker::def(L, \"%s\",&%s);\n", (pContent->getWholeName() + v.first).c_str(), (pContent->getAccessPrifix() +v.first).c_str());	//normal
-					os += szBuf;
+					def_params += ", ";
+					def_params += dv;
 				}
-				else
-				{
-					std::string def_params;
-					for (const auto& dv : refData.default_val)
-					{
-						if (def_params.empty() == false)
-							def_params += ", ";
-						def_params += dv;
-					}
-					sprintf_s(szBuf, 4096, "lua_tinker::def(L, \"%s\",&%s, %s);\n", (pContent->getWholeName() + v.first).c_str(), (pContent->getAccessPrifix() + v.first).c_str(), def_params.c_str());
-					os += szBuf;
-				}
-
+				
+				sprintf_s(szBuf, 4096, "lua_tinker::def(L, \"%s\",&%s%s);\n", (pContent->getWholeName() + v.first).c_str(), (pContent->getAccessPrifix() + v.first).c_str(), def_params.c_str());
+				os += szBuf;
+				
 			}
 			else
 			{
 				//overload
 				std::string overload_params;
+				std::string def_params;
+				size_t nDefaultParamsStart= 1;
 				for (const auto& refData : refDataSet)
 				{
-					std::string def_params;
+					std::string def_params_decl;
 					for (const auto& dv : refData.default_val)
 					{
-						if (def_params.empty() == false)
-							def_params += ", ";
+						def_params += ", ";
 						def_params += dv;
 					}
+					if (refData.default_val.empty() == false)
+					{
+						sprintf_s(szBuf, 4096, ",%u /*default_args_count*/, %u /*default_args_start*/ ", refData.default_val.size(), nDefaultParamsStart);
+						nDefaultParamsStart += refData.default_val.size();
+						def_params_decl = szBuf;
+					}
+
 					if (overload_params.empty() == false)
 						overload_params += ", ";
-					sprintf_s(szBuf, 4096, "\nlua_tinker::make_functor_ptr((%s)(&%s))", refData.funcptr_type.c_str(), (pContent->getAccessPrifix()+ v.first).c_str());
+					sprintf_s(szBuf, 4096, "\n\tlua_tinker::make_functor_ptr((%s)(&%s)%s)", refData.funcptr_type.c_str(), (pContent->getAccessPrifix()+ v.first).c_str(), def_params_decl.c_str());
 					overload_params += szBuf;
 				}
 
-				sprintf_s(szBuf, 4096, "lua_tinker::def(L, \"%s\", lua_tinker::args_type_overload_functor(%s));\n", (pContent->getWholeName() + v.first).c_str(), overload_params.c_str());
+				sprintf_s(szBuf, 4096, "lua_tinker::def(L, \"%s\", lua_tinker::args_type_overload_functor(%s)%s);\n", (pContent->getWholeName() + v.first).c_str(), overload_params.c_str(), def_params.c_str());
 				os += szBuf;
 			}
 
@@ -536,52 +537,51 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 			if (refDataSet.size() == 1) //no overload
 			{
 				const auto& refData = refDataSet[0];
-				if (refData.default_val.empty())
+				std::string def_params;
+				for (const auto& dv : refData.default_val)
 				{
-					if(refData.is_static)
-						sprintf_s(szBuf, 4096, "lua_tinker::class_def_static<%s>(L, \"%s\",&%s);\n", pContent->getAccessName().c_str(), v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str());	//normal
-					else
-						sprintf_s(szBuf, 4096, "lua_tinker::class_def<%s>(L, \"%s\",&%s);\n", pContent->getAccessName().c_str(), v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str());	//normal
-					os += szBuf;
+					def_params += ", ";
+					def_params += dv;
 				}
+					
+
+				if (refData.is_static)
+					sprintf_s(szBuf, 4096, "lua_tinker::class_def_static<%s>(L, \"%s\",&%s%s);\n", pContent->getAccessName().c_str(), v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str(), def_params.c_str());
 				else
-				{
-					std::string def_params;
-					for (const auto& dv : refData.default_val)
-					{
-						if (def_params.empty() == false)
-							def_params += ", ";
-						def_params += dv;
-					}
-					if (refData.is_static)
-						sprintf_s(szBuf, 4096, "lua_tinker::class_def_static<%s>(L, \"%s\",&%s, %s);\n", pContent->getAccessName().c_str(),  v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str(), def_params.c_str());
-					else
-						sprintf_s(szBuf, 4096, "lua_tinker::class_def<%s>(L, \"%s\",&%s, %s);\n", pContent->getAccessName().c_str(),  v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str(), def_params.c_str());
-					os += szBuf;
-				}
+					sprintf_s(szBuf, 4096, "lua_tinker::class_def<%s>(L, \"%s\",&%s%s);\n", pContent->getAccessName().c_str(), v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str(), def_params.c_str());
+				os += szBuf;
+				
 
 			}
 			else
 			{
 				//overload
 				std::string overload_params;
+				size_t nDefaultParamsStart = 1;
+				std::string def_params;
 				for (const auto& refData : refDataSet)
 				{
-					std::string def_params;
+					std::string def_params_decl;
 					for (const auto& dv : refData.default_val)
 					{
-						if (def_params.empty() == false)
-							def_params += ", ";
+						def_params += ", ";
 						def_params += dv;
 					}
+					if (refData.default_val.empty() == false)
+					{
+						sprintf_s(szBuf, 4096, ",%u /*default_args_count*/, %u /*default_args_start*/ ", refData.default_val.size(), nDefaultParamsStart);
+						nDefaultParamsStart += refData.default_val.size();
+						def_params_decl = szBuf;
+					}
+
 					if (overload_params.empty() == false)
 						overload_params += ", ";
-					sprintf_s(szBuf, 4096, "\nlua_tinker::make_member_functor_ptr((%s)(&%s))", refData.funcptr_type.c_str(), (pContent->getAccessPrifix() + v.first).c_str());
+					sprintf_s(szBuf, 4096, "\n\tlua_tinker::make_member_functor_ptr((%s)(&%s)%s)", refData.funcptr_type.c_str(), (pContent->getAccessPrifix() + v.first).c_str(), def_params_decl.c_str());
 					overload_params += szBuf;
 				}
 				
-				sprintf_s(szBuf, 4096, "lua_tinker::class_def<%s>(L, \"%s\", lua_tinker::args_type_overload_member_functor(%s));\n",
-					pContent->getAccessName().c_str(), v.first.c_str(), overload_params.c_str());
+				sprintf_s(szBuf, 4096, "lua_tinker::class_def<%s>(L, \"%s\", lua_tinker::args_type_overload_member_functor(%s)%s);\n",
+					pContent->getAccessName().c_str(), v.first.c_str(), overload_params.c_str(),def_params.c_str());
 				
 
 				os += szBuf;
@@ -597,45 +597,44 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 		if (refDataSet.size() == 1) //no overload
 		{
 			const auto& refData = refDataSet[0];
-			if (refData.default_val.empty())
+			
+			std::string def_params;
+			for (const auto& dv : refData.default_val)
 			{
-				sprintf_s(szBuf, 4096, "lua_tinker::class_con<%s>(L, lua_tinker::constructor<%s%s>::invoke);\n", pContent->getAccessName().c_str(), pContent->getAccessName().c_str(), refData.func_type.c_str());	//normal
-				os += szBuf;
+				if (def_params.empty() == false)
+					def_params += ", ";
+				def_params += dv;
 			}
-			else
-			{
-				std::string def_params;
-				for (const auto& dv : refData.default_val)
-				{
-					if (def_params.empty() == false)
-						def_params += ", ";
-					def_params += dv;
-				}
-				sprintf_s(szBuf, 4096, "lua_tinker::class_con<%s>(L, lua_tinker::constructor<%s%s>::invoke, %s);\n", pContent->getAccessName().c_str(), pContent->getAccessName().c_str(), refData.func_type.c_str(), def_params.c_str());	//normal
-				os += szBuf;
-			}
-
+			sprintf_s(szBuf, 4096, "lua_tinker::class_con<%s>(L, lua_tinker::constructor<%s%s>::invoke%s);\n", pContent->getAccessName().c_str(), pContent->getAccessName().c_str(), refData.func_type.c_str(), def_params.c_str());	//normal
+			os += szBuf;
 		}
 		else
 		{
 			//overload
 			std::string overload_params;
+			size_t nDefaultParamsStart = 1;
+			std::string def_params;
 			for (const auto& refData : refDataSet)
 			{
-				std::string def_params;
+				std::string def_params_decl;
 				for (const auto& dv : refData.default_val)
 				{
-					if (def_params.empty() == false)
-						def_params += ", ";
+					def_params += ", ";
 					def_params += dv;
 				}
-				sprintf_s(szBuf, 4096, "\nnew lua_tinker::constructor<%s%s>()", pContent->getAccessName().c_str(), refData.func_type.c_str());	//normal
+				if (refData.default_val.empty() == false)
+				{
+					sprintf_s(szBuf, 4096, ",%u /*default_args_count*/, %u /*default_args_start*/ ", refData.default_val.size(), nDefaultParamsStart);
+					nDefaultParamsStart += refData.default_val.size();
+					def_params_decl = szBuf;
+				}
+				sprintf_s(szBuf, 4096, "\n\tnew lua_tinker::constructor<%s%s>(%s)", pContent->getAccessName().c_str(), refData.func_type.c_str(), def_params_decl.c_str());	//normal
 				if (overload_params.empty() == false)
 					overload_params += ", ";
 				overload_params += szBuf;
 			}
 
-			sprintf_s(szBuf, 4096, "lua_tinker::class_con<%s>(L,lua_tinker::args_type_overload_constructor(%s));\n", pContent->getAccessName().c_str(), overload_params.c_str());
+			sprintf_s(szBuf, 4096, "lua_tinker::class_con<%s>(L,lua_tinker::args_type_overload_constructor(%s)%s);\n", pContent->getAccessName().c_str(), overload_params.c_str(),def_params.c_str());
 			os += szBuf;
 		}
 
@@ -655,9 +654,9 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 		for (const auto& v : pContent->m_vecValName)
 		{
 			if(v.second == true)
-				sprintf_s(szBuf, 4096, "lua_tinker::class_mem_static<%s>(L,\"%s\",&%s);\n", pContent->getAccessName().c_str(), (pContent->getWholeName()+v.first).c_str(), (pContent->getAccessPrifix() + v.first).c_str());
+				sprintf_s(szBuf, 4096, "lua_tinker::class_mem_static<%s>(L,\"%s\",&%s);\n", pContent->getAccessName().c_str(), v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str());
 			else
-				sprintf_s(szBuf, 4096, "lua_tinker::class_mem<%s>(L,\"%s\",&%s);\n", pContent->getAccessName().c_str(), (pContent->getWholeName()+v.first).c_str(), (pContent->getAccessPrifix() +v.first).c_str());
+				sprintf_s(szBuf, 4096, "lua_tinker::class_mem<%s>(L,\"%s\",&%s);\n", pContent->getAccessName().c_str(), v.first.c_str(), (pContent->getAccessPrifix() +v.first).c_str());
 			os += szBuf;
 		}
 	}
