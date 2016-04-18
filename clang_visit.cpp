@@ -30,6 +30,33 @@ struct Visitor_Content
 		m_setChild.clear();
 	}
 
+	std::string getWholeName()
+	{
+		if (m_pParent == nullptr)
+			return m_name;
+		return m_pParent->getWholeName() + m_name;
+	}
+	std::string getAccessName()
+	{
+		if (m_pParent == nullptr)
+			return m_name;
+		if (m_pParent->getAccessName().empty())
+		{
+			return m_name;
+		}
+		else
+		{
+			return m_pParent->getAccessName() + "::" + m_name;
+		}
+	}
+	std::string getAccessPrifix()
+	{
+		if (getAccessName().empty())
+			return "";
+		else
+			return getAccessName() + "::";
+	}
+
 	bool bClass = false;
 	bool bNameSpace = false;
 	std::string m_name;
@@ -326,7 +353,7 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 	case CXCursor_CXXBaseSpecifier:
 		{
 			//reg inh
-			std::string nsname = clang_getCString(clang_getCursorDisplayName(cursor));
+			std::string nsname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
 			CXFile file;
 			unsigned line;
 			unsigned column;
@@ -413,122 +440,13 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 	//class add
 	if(pContent->bClass)
 	{
-		sprintf_s(szBuf, 4096, "luatinker::class_add<%s>(L, \"%s\",true);\n", pContent->m_name.c_str(), pContent->m_name.c_str());	//class_add
+		sprintf_s(szBuf, 4096, "luatinker::class_add<%s>(L, \"%s\",true);\n", pContent->getAccessName().c_str(), pContent->getWholeName().c_str());	//class_add
 		os += szBuf;
 	}
 	//global_func
-	if (pContent->m_name.empty())
+
+	if (pContent->bClass == false)
 	{
-		if (pContent->bClass == false)
-		{
-			for (const auto& v : pContent->m_vecFuncName)
-			{
-				const auto& refDataSet = v.second;
-				if (refDataSet.size() == 1) //no overload
-				{
-					const auto& refData = refDataSet[0];
-					if (refData.default_val.empty())
-					{
-						sprintf_s(szBuf, 4096, "luatinker::def(L, \"%s\",&%s);\n", v.first.c_str(), v.first.c_str());	//normal
-						os += szBuf;
-					}
-					else
-					{
-						std::string def_params;
-						for (const auto& dv : refData.default_val)
-						{
-							if (def_params.empty() == false)
-								def_params += ", ";
-							def_params += dv;
-						}
-						sprintf_s(szBuf, 4096, "luatinker::def(L, \"%s\",&%s, %s);\n", v.first.c_str(), v.first.c_str(), def_params.c_str());
-						os += szBuf;
-					}
-
-				}
-				else
-				{
-					//overload
-					std::string overload_params;
-					for (const auto& refData : refDataSet)
-					{
-						std::string def_params;
-						for (const auto& dv : refData.default_val)
-						{
-							if (def_params.empty() == false)
-								def_params += ", ";
-							def_params += dv;
-						}
-						if (overload_params.empty() == false)
-							overload_params += " ,";
-						sprintf_s(szBuf, 4096, "(%s)(&%s)", refData.funcptr_type.c_str(), v.first.c_str());
-						overload_params += szBuf;
-					}
-
-					sprintf_s(szBuf, 4096, "luatinker::def(L, \"%s\", lua_tinker::args_type_overload_functor(%s));\n", v.first.c_str(), overload_params.c_str());
-					os += szBuf;
-				}
-
-
-			}
-		}
-		else
-		{
-			for (const auto& v : pContent->m_vecFuncName)
-			{
-				const auto& refDataSet = v.second;
-				if (refDataSet.size() == 1) //no overload
-				{
-					const auto& refData = refDataSet[0];
-					if (refData.default_val.empty())
-					{
-						sprintf_s(szBuf, 4096, "luatinker::def(L, \"%s\",&%s::%s);\n", v.first.c_str(), pContent->m_name.c_str(), v.first.c_str());	//normal
-						os += szBuf;
-					}
-					else
-					{
-						std::string def_params;
-						for (const auto& dv : refData.default_val)
-						{
-							if (def_params.empty() == false)
-								def_params += ", ";
-							def_params += dv;
-						}
-						sprintf_s(szBuf, 4096, "luatinker::def(L, \"%s\",&%s::%s, %s);\n", v.first.c_str(), pContent->m_name.c_str(), v.first.c_str(), def_params.c_str());
-						os += szBuf;
-					}
-
-				}
-				else
-				{
-					//overload
-					std::string overload_params;
-					for (const auto& refData : refDataSet)
-					{
-						std::string def_params;
-						for (const auto& dv : refData.default_val)
-						{
-							if (def_params.empty() == false)
-								def_params += ", ";
-							def_params += dv;
-						}
-						if (overload_params.empty() == false)
-							overload_params += " ,";
-						sprintf_s(szBuf, 4096, "(%s)(&%s::%s)", refData.funcptr_type.c_str(), pContent->m_name.c_str(),v.first.c_str());
-						overload_params += szBuf;
-					}
-
-					sprintf_s(szBuf, 4096, "luatinker::def(L, \"%s\", lua_tinker::args_type_overload_functor(%s));\n", v.first.c_str(), overload_params.c_str());
-					os += szBuf;
-				}
-
-
-			}
-		}
-	}
-	else
-	{
-		//class CXXMethod
 		for (const auto& v : pContent->m_vecFuncName)
 		{
 			const auto& refDataSet = v.second;
@@ -537,10 +455,7 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 				const auto& refData = refDataSet[0];
 				if (refData.default_val.empty())
 				{
-					if(refData.is_static)
-						sprintf_s(szBuf, 4096, "luatinker::class_def_static<%s>(L, \"%s\",&%s::%s);\n", pContent->m_name.c_str(), v.first.c_str(), pContent->m_name.c_str(), v.first.c_str());	//normal
-					else
-						sprintf_s(szBuf, 4096, "luatinker::class_def<%s>(L, \"%s\",&%s::%s);\n", pContent->m_name.c_str(), v.first.c_str(), pContent->m_name.c_str(), v.first.c_str());	//normal
+					sprintf_s(szBuf, 4096, "luatinker::def(L, \"%s\",&%s);\n", (pContent->getWholeName() + v.first).c_str(), (pContent->getAccessPrifix() +v.first).c_str());	//normal
 					os += szBuf;
 				}
 				else
@@ -552,10 +467,7 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 							def_params += ", ";
 						def_params += dv;
 					}
-					if (refData.is_static)
-						sprintf_s(szBuf, 4096, "luatinker::class_def_static<%s>(L, \"%s\",&%s::%s, %s);\n", pContent->m_name.c_str(), v.first.c_str(), pContent->m_name.c_str(), v.first.c_str(), def_params.c_str());
-					else
-						sprintf_s(szBuf, 4096, "luatinker::class_def<%s>(L, \"%s\",&%s::%s, %s);\n", pContent->m_name.c_str(), v.first.c_str(), pContent->m_name.c_str(), v.first.c_str(), def_params.c_str());
+					sprintf_s(szBuf, 4096, "luatinker::def(L, \"%s\",&%s, %s);\n", (pContent->getWholeName() + v.first).c_str(), (pContent->getAccessPrifix() + v.first).c_str(), def_params.c_str());
 					os += szBuf;
 				}
 
@@ -575,12 +487,72 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 					}
 					if (overload_params.empty() == false)
 						overload_params += " ,";
-					sprintf_s(szBuf, 4096, "(%s)(&%s::%s)", refData.funcptr_type.c_str(), pContent->m_name.c_str(), v.first.c_str());
+					sprintf_s(szBuf, 4096, "(%s)(&%s)", refData.funcptr_type.c_str(), (pContent->getAccessPrifix()+ v.first).c_str());
+					overload_params += szBuf;
+				}
+
+				sprintf_s(szBuf, 4096, "luatinker::def(L, \"%s\", lua_tinker::args_type_overload_functor(%s));\n", (pContent->getWholeName() + v.first).c_str(), overload_params.c_str());
+				os += szBuf;
+			}
+
+
+		}
+	}
+	else
+	{
+		//class CXXMethod
+		for (const auto& v : pContent->m_vecFuncName)
+		{
+			const auto& refDataSet = v.second;
+			if (refDataSet.size() == 1) //no overload
+			{
+				const auto& refData = refDataSet[0];
+				if (refData.default_val.empty())
+				{
+					if(refData.is_static)
+						sprintf_s(szBuf, 4096, "luatinker::class_def_static<%s>(L, \"%s\",&%s);\n", pContent->getAccessName().c_str(), v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str());	//normal
+					else
+						sprintf_s(szBuf, 4096, "luatinker::class_def<%s>(L, \"%s\",&%s);\n", pContent->getAccessName().c_str(), v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str());	//normal
+					os += szBuf;
+				}
+				else
+				{
+					std::string def_params;
+					for (const auto& dv : refData.default_val)
+					{
+						if (def_params.empty() == false)
+							def_params += ", ";
+						def_params += dv;
+					}
+					if (refData.is_static)
+						sprintf_s(szBuf, 4096, "luatinker::class_def_static<%s>(L, \"%s\",&%s, %s);\n", pContent->getAccessName().c_str(),  v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str(), def_params.c_str());
+					else
+						sprintf_s(szBuf, 4096, "luatinker::class_def<%s>(L, \"%s\",&%s, %s);\n", pContent->getAccessName().c_str(),  v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str(), def_params.c_str());
+					os += szBuf;
+				}
+
+			}
+			else
+			{
+				//overload
+				std::string overload_params;
+				for (const auto& refData : refDataSet)
+				{
+					std::string def_params;
+					for (const auto& dv : refData.default_val)
+					{
+						if (def_params.empty() == false)
+							def_params += ", ";
+						def_params += dv;
+					}
+					if (overload_params.empty() == false)
+						overload_params += " ,";
+					sprintf_s(szBuf, 4096, "(%s)(&%s)", refData.funcptr_type.c_str(), (pContent->getAccessPrifix() + v.first).c_str());
 					overload_params += szBuf;
 				}
 				
 				sprintf_s(szBuf, 4096, "luatinker::class_def<%s>(L, \"%s\", lua_tinker::args_type_overload_member_functor(%s));\n",
-						pContent->m_name.c_str(), v.first.c_str(), overload_params.c_str());
+					pContent->getAccessName().c_str(), v.first.c_str(), overload_params.c_str());
 				
 
 				os += szBuf;
@@ -598,7 +570,7 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 			const auto& refData = refDataSet[0];
 			if (refData.default_val.empty())
 			{
-				sprintf_s(szBuf, 4096, "luatinker::class_con<%s>(L, lua_tinker::constructor<%s%s>::invoke);\n", pContent->m_name.c_str(), pContent->m_name.c_str(), refData.func_type.c_str());	//normal
+				sprintf_s(szBuf, 4096, "luatinker::class_con<%s>(L, lua_tinker::constructor<%s%s>::invoke);\n", pContent->getAccessName().c_str(), pContent->getAccessName().c_str(), refData.func_type.c_str());	//normal
 				os += szBuf;
 			}
 			else
@@ -610,7 +582,7 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 						def_params += ", ";
 					def_params += dv;
 				}
-				sprintf_s(szBuf, 4096, "luatinker::class_con<%s>(L, lua_tinker::constructor<%s%s>::invoke, %s);\n", pContent->m_name.c_str(), pContent->m_name.c_str(), refData.func_type.c_str(), def_params.c_str());	//normal
+				sprintf_s(szBuf, 4096, "luatinker::class_con<%s>(L, lua_tinker::constructor<%s%s>::invoke, %s);\n", pContent->getAccessName().c_str(), pContent->getAccessName().c_str(), refData.func_type.c_str(), def_params.c_str());	//normal
 				os += szBuf;
 			}
 
@@ -628,24 +600,24 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 						def_params += ", ";
 					def_params += dv;
 				}
-				sprintf_s(szBuf, 4096, "lua_tinker::constructor<%s%s>()", pContent->m_name.c_str(), refData.func_type.c_str());	//normal
+				sprintf_s(szBuf, 4096, "lua_tinker::constructor<%s%s>()", pContent->getAccessName().c_str(), refData.func_type.c_str());	//normal
 				if (overload_params.empty() == false)
 					overload_params += ", ";
 				overload_params += szBuf;
 			}
 
-			sprintf_s(szBuf, 4096, "luatinker::class_con<%s>(L,lua_tinker::args_type_overload_constructor(%s))\n", v.first.c_str(), overload_params.c_str());
+			sprintf_s(szBuf, 4096, "luatinker::class_con<%s>(L,lua_tinker::args_type_overload_constructor(%s))\n", pContent->getAccessName().c_str(), overload_params.c_str());
 			os += szBuf;
 		}
 
 
 	}
 
-	if (pContent->m_name.empty())
+	if (pContent->bClass == false)
 	{
 		for (const auto& v : pContent->m_vecValName)
 		{
-			sprintf_s(szBuf, 4096, "luatinker::set(L,\"%s\",%s);\n", v.first.c_str(), v.first.c_str());
+			sprintf_s(szBuf, 4096, "luatinker::set(L,\"%s\",%s);\n", (pContent->getWholeName()+v.first).c_str(), (pContent->getAccessPrifix() +v.first).c_str());
 			os += szBuf;
 		}
 	}
@@ -654,21 +626,21 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 		for (const auto& v : pContent->m_vecValName)
 		{
 			if(v.second == true)
-				sprintf_s(szBuf, 4096, "luatinker::class_mem_static<%s>(L,\"%s\",%s::%s);\n", pContent->m_name.c_str(), v.first.c_str(), pContent->m_name.c_str(), v.first.c_str());
+				sprintf_s(szBuf, 4096, "luatinker::class_mem_static<%s>(L,\"%s\",&%s);\n", pContent->getAccessName().c_str(), (pContent->getWholeName()+v.first).c_str(), (pContent->getAccessPrifix() + v.first).c_str());
 			else
-				sprintf_s(szBuf, 4096, "luatinker::class_mem<%s>(L,\"%s\",%s::%s);\n", pContent->m_name.c_str(), v.first.c_str(), pContent->m_name.c_str(), v.first.c_str());
+				sprintf_s(szBuf, 4096, "luatinker::class_mem<%s>(L,\"%s\",&%s);\n", pContent->getAccessName().c_str(), (pContent->getWholeName()+v.first).c_str(), (pContent->getAccessPrifix() +v.first).c_str());
 			os += szBuf;
 		}
 	}
 
 	for (const auto& v : pContent->m_vecInhName)
 	{
-		sprintf_s(szBuf, 4096, "luatinker::class_inh<%s,%s>(L);\n", pContent->m_name.c_str(), v.c_str());
+		sprintf_s(szBuf, 4096, "luatinker::class_inh<%s,%s>(L);\n",  pContent->getWholeName().c_str(), (pContent->getWholeName() + v).c_str());
 		os += szBuf;
 	}
 	for (const auto& v : pContent->m_vecEnumName)
 	{
-		sprintf_s(szBuf, 4096, "luatinker::set(L, \"%s\",%s);\n", v.c_str(), v.c_str());
+		sprintf_s(szBuf, 4096, "luatinker::set(L, \"%s\",%s);\n", (pContent->getWholeName() +v).c_str(), (pContent->getAccessPrifix() +v).c_str());
 		os += szBuf;
 	}
 
