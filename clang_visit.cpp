@@ -398,6 +398,7 @@ void display_debug_cursor(CXCursor& cursor, CXCursorKind& kind, CXSourceLocation
 	
 }
 
+bool g_bPreProcessing = true;
 enum CXChildVisitResult TU_visitor(CXCursor cursor,
 	CXCursor parent,
 	CXClientData client_data)
@@ -408,7 +409,13 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 
 	auto kind = clang_getCursorKind(cursor);
 
-
+	if(g_bPreProcessing && clang_isPreprocessing(kind) == 0)
+	{
+		//first out of preprcessing check need export
+		g_bPreProcessing = false;
+		if (g_export_loc.empty())
+			return CXChildVisit_Break;
+	}
 
 
 	switch (kind)
@@ -422,20 +429,21 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			{
 				display_debug_cursor(cursor, kind, source_loc);
 			}
+			CXFile file;
+			unsigned line;
+			unsigned column;
+			unsigned offset;
+			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
+
+			CXFileUniqueID id;
+			clang_getFileUniqueID(file, &id);
+
+			if (NeedSkipByFile(id) == true)
+				return CXChildVisit_Continue;
 
 			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
 			if (nsname == "export_lua")
 			{
-				CXFile file;
-				unsigned line;
-				unsigned column;
-				unsigned offset;
-				clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
-
-				CXFileUniqueID id;
-				clang_getFileUniqueID(file, &id);
-
-
 				auto& refSet = g_export_loc[id];
 				refSet.insert(line);
 			}
@@ -1228,11 +1236,13 @@ int main(int argc, char** argv)
 		}
 		else
 		{
+			g_bPreProcessing = true;
 			clang_visitChildren(C, TU_visitor, &content);
+			g_export_loc.clear();
+
 		}
 		
 		clang_getInclusions(TU, visit_includes, 0);
-
 
 		clang_disposeTranslationUnit(TU);
 
