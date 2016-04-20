@@ -16,24 +16,25 @@ usage： export2lua headfile1 headfile2 > output.cpp
 
 ***
 in cxx：  
-`#define export_lua`  
-`export_lua class test`  
-`{`  
-`export_lua test(){}`  
-`export_lua void member_func(int);`  
-`};`  
-`export_lua int global_func();`  
-
+```
+#define export_lua  
+export_lua class test    
+{   
+export_lua test(){}  
+export_lua void member_func(int);  
+};  
+export_lua int global_func();  
+```
 autogen:
-
-`//this file was auto generated, plz don't modify it`  
-`#include "lua_tinker.h"`  
-`#include "tests/class2.h"`  
-`void export_to_lua_auto(lua_State* L)`  
-`{`  
-`lua_tinker::def(L, "global_func",&global_func);`  
-`lua_tinker::class_add<test>(L, "test",true);`  
-`lua_tinker::class_def<test>(L, "member_func",&test::member_func);`  
-`lua_tinker::class_con<test>(L, lua_tinker::constructor<test>::invoke);`  
-`}`  
-
+```
+//this file was auto generated, plz don't modify it
+#include "lua_tinker.h"
+#include "tests/class2.h"
+void export_to_lua_auto(lua_State* L)
+{ 
+lua_tinker::def(L, "global_func",&global_func);
+lua_tinker::class_add<test>(L, "test",true);
+lua_tinker::class_def<test>(L, "member_func",&test::member_func); 
+lua_tinker::class_con<test>(L, lua_tinker::constructor<test>::invoke);
+}
+```
