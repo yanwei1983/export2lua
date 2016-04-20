@@ -15,10 +15,10 @@
 usage： export2lua [cppfile] [-Iheaderdir] ... [-Iheaderdir] [--cpps=cpps_list_file] [--include=header_dirs_file] [--output=output_file] [--default_prarams=off] [-v]  
 ***
 
-cpps_list_file use ';' to separate cpp_file from file like a.cpp;b.cpp;test/c.cpp;  
-header_dirs_file use ';' to separate header_dirs from file like -Itest;-I../game;  
-if default_prarams == off did not output default_params  
-if -v is set, will output DEBUG info  
+* cpps_list_file use ';' to separate cpp_file from file like a.cpp;b.cpp;test/c.cpp;  
+* header_dirs_file use ';' to separate header_dirs from file like -Itest;-I../game;  
+* if default_prarams == off did not output default_params  
+* if -v is set, will output DEBUG info  
 
 
 ***
