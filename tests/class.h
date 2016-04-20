@@ -1,3 +1,4 @@
+#pragma once
 #include "class2.h"
 
 export_lua int GlobalFunction(int) PURE_VIRTUAL_FUNCTION_0

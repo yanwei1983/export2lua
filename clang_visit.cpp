@@ -12,6 +12,7 @@
 std::string output_filename;
 bool g_bDebug = false;
 bool g_bDefault_Params = true;
+bool g_bJustDisplay = false;
 struct Visitor_Content
 {
 	Visitor_Content(std::string name = "", Visitor_Content* pParent = nullptr, std::string accessname = "")
@@ -304,12 +305,16 @@ bool operator!= (const CXFileUniqueID& lft, const CXFileUniqueID& rht)
 	return !(lft == rht);
 }
 
-bool NeedSkip(CXFileUniqueID id)
+void AddSkipFile(CXFileUniqueID id)
+{
+	g_finish_file.insert(id);
+}
+
+bool NeedSkipByFile(CXFileUniqueID id)
 {
 	auto itFind = g_finish_file.find(id);
 	if (itFind != g_finish_file.end())
 	{
-		g_lastfile = id;
 		if (g_bDebug)
 		{
 			printf("skip:%llx %llx %llx \n", id.data[0], id.data[1], id.data[2]);
@@ -317,27 +322,81 @@ bool NeedSkip(CXFileUniqueID id)
 		return true;
 	}
 
-	if (g_lastfile != id)
-	{	
-		if (g_lastfile != CXFileUniqueID{ 0,0,0 })
-		{
-			g_finish_file.insert(g_lastfile);
-			if (g_bDebug)
-			{
-				printf("finish:%llx %llx %llx \n", g_lastfile.data[0], g_lastfile.data[1], g_lastfile.data[2]);
-			}
-		}
-		g_lastfile = id;
-		if (g_bDebug)
-		{
-			printf("start:%llx %llx %llx \n", id.data[0], id.data[1], id.data[2]);
-		}
-	}
-
-	
 	return false;
 }
 
+
+static void printString(const char *name, CXString string)
+{
+	const char *cstr = clang_getCString(string);
+	if (cstr && *cstr) {
+		printf("%s: %s ", name, cstr);
+	}
+	clang_disposeString(string);
+}
+
+static void printCursor(CXCursor cursor)
+{
+	CXFile file;
+	unsigned int off, line, col;
+	CXSourceLocation location = clang_getCursorLocation(cursor);
+	clang_getSpellingLocation(location, &file, &line, &col, &off);
+	CXString fileName = clang_getFileName(file);
+	const char *fileNameCStr = clang_getCString(fileName);
+	if (fileNameCStr) {
+		CXSourceRange range = clang_getCursorExtent(cursor);
+		unsigned int start, end;
+		clang_getSpellingLocation(clang_getRangeStart(range), 0, 0, 0, &start);
+		clang_getSpellingLocation(clang_getRangeEnd(range), 0, 0, 0, &end);
+		printf("%s:%d:%d (%d, %d-%d) ", fileNameCStr, line, col, off, start, end);
+	}
+	clang_disposeString(fileName);
+	printString("kind", clang_getCursorKindSpelling(clang_getCursorKind(cursor)));
+	printString("display name", clang_getCursorDisplayName(cursor));
+	printString("usr", clang_getCursorUSR(cursor));
+	if (clang_isCursorDefinition(cursor))
+		printf("definition ");
+	printf("\n");
+}
+
+static enum CXChildVisitResult visit_display(CXCursor cursor, CXCursor parent, CXClientData userData)
+{
+	(void)parent;
+	int indent = *(int*)userData;
+	int i;
+	for (i = 0; i<indent; ++i) {
+		printf("  ");
+	}
+	printCursor(cursor);
+	CXCursor ref = clang_getCursorReferenced(cursor);
+	if (!clang_isInvalid(clang_getCursorKind(ref)) && !clang_equalCursors(ref, cursor)) {
+		for (i = 0; i<indent; ++i) {
+			printf("  ");
+		}
+		printf("-> ");
+		printCursor(ref);
+	}
+	++indent;
+	clang_visitChildren(cursor, visit_display, &indent);
+	return CXChildVisit_Continue;
+}
+
+void display_debug_cursor(CXCursor& cursor, CXCursorKind& kind, CXSourceLocation& source_loc)
+{
+
+	std::string kindname = clang_getCString(clang_getCursorKindSpelling(kind));
+
+	CXFile file;
+	unsigned line;
+	unsigned column;
+	unsigned offset;
+	clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
+
+	std::string filename = clang_getCString(clang_getFileName(file));
+	std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
+	printf("find:%d %s name:%s in file:%s\n", kind, kindname.c_str(), nsname.c_str(), filename.c_str());
+	
+}
 
 enum CXChildVisitResult TU_visitor(CXCursor cursor,
 	CXCursor parent,
@@ -345,33 +404,24 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 {
 	Visitor_Content* pContent = (Visitor_Content*)client_data;
 
-	auto source_loc = clang_getCursorLocation(cursor);
-	if (clang_Location_isInSystemHeader(source_loc))
-		return CXChildVisit_Continue;
 
 
 	auto kind = clang_getCursorKind(cursor);
 
-	if (g_bDebug)
-	{
-		std::string kindname = clang_getCString(clang_getCursorKindSpelling(kind));
 
-		CXFile file;
-		unsigned line;
-		unsigned column;
-		unsigned offset;
-		clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
-
-		std::string filename = clang_getCString(clang_getFileName(file));
-		std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
-		printf("find:%d %s name:%s in file:%s\n", kind, kindname.c_str(), nsname.c_str(), filename.c_str());
-	}
 
 
 	switch (kind)
 	{
 	case CXCursor_MacroExpansion:
 		{
+			auto source_loc = clang_getCursorLocation(cursor);
+			if (clang_Location_isInSystemHeader(source_loc))
+				return CXChildVisit_Continue;
+			if (g_bDebug)
+			{
+				display_debug_cursor(cursor, kind, source_loc);
+			}
 
 			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
 			if (nsname == "export_lua")
@@ -394,6 +444,13 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 		break;
 	case CXCursor_Namespace:
 		{
+			auto source_loc = clang_getCursorLocation(cursor);
+			if (clang_Location_isInSystemHeader(source_loc))
+				return CXChildVisit_Continue;
+			if (g_bDebug)
+			{
+				display_debug_cursor(cursor, kind, source_loc);
+			}
 			CXFile file;
 			unsigned line;
 			unsigned column;
@@ -401,7 +458,7 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
 			CXFileUniqueID id;
 			clang_getFileUniqueID(file, &id);
-			if (NeedSkip(id) == true)
+			if (NeedSkipByFile(id) == true)
 				return CXChildVisit_Continue;
 
 
@@ -426,7 +483,13 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 	case CXCursor_StructDecl:
 	case CXCursor_ClassDecl:
 		{
-
+			auto source_loc = clang_getCursorLocation(cursor);
+			if (clang_Location_isInSystemHeader(source_loc))
+				return CXChildVisit_Continue;
+			if (g_bDebug)
+			{
+				display_debug_cursor(cursor, kind, source_loc);
+			}
 			CXFile file;
 			unsigned line;
 			unsigned column;
@@ -436,7 +499,7 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 
 			CXFileUniqueID id;
 			clang_getFileUniqueID(file, &id);
-			if (NeedSkip(id) == true)
+			if (NeedSkipByFile(id) == true)
 				return CXChildVisit_Continue;
 			auto itFind = g_export_loc.find(id);
 			if (itFind != g_export_loc.end())
@@ -473,6 +536,13 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 		break;
 	case CXCursor_CXXMethod:
 		{
+			auto source_loc = clang_getCursorLocation(cursor);
+			if (clang_Location_isInSystemHeader(source_loc))
+				return CXChildVisit_Continue;
+			if (g_bDebug)
+			{
+				display_debug_cursor(cursor, kind, source_loc);
+			}
 			CXFile file;
 			unsigned line;
 			unsigned column;
@@ -482,7 +552,7 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 
 			CXFileUniqueID id;
 			clang_getFileUniqueID(file, &id);
-			if (NeedSkip(id) == true)
+			if (NeedSkipByFile(id) == true)
 				return CXChildVisit_Continue;
 
 			auto itFind = g_export_loc.find(id);
@@ -509,6 +579,13 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 		break;
 	case CXCursor_Constructor:
 		{
+			auto source_loc = clang_getCursorLocation(cursor);
+			if (clang_Location_isInSystemHeader(source_loc))
+				return CXChildVisit_Continue;
+			if (g_bDebug)
+			{
+				display_debug_cursor(cursor, kind, source_loc);
+			}
 			CXFile file;
 			unsigned line;
 			unsigned column;
@@ -517,7 +594,7 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			//std::string filename = clang_getCString(clang_getFileName(file));
 			CXFileUniqueID id;
 			clang_getFileUniqueID(file, &id);
-			if (NeedSkip(id) == true)
+			if (NeedSkipByFile(id) == true)
 				return CXChildVisit_Continue;
 
 			auto itFind = g_export_loc.find(id);
@@ -544,12 +621,17 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 		break;
 	case CXCursor_Destructor:
 		{
-
 		}
 		break;
 	case CXCursor_FieldDecl:
 		{
-
+			auto source_loc = clang_getCursorLocation(cursor);
+			if (clang_Location_isInSystemHeader(source_loc))
+				return CXChildVisit_Continue;
+			if (g_bDebug)
+			{
+				display_debug_cursor(cursor, kind, source_loc);
+			}
 			CXFile file;
 			unsigned line;
 			unsigned column;
@@ -558,7 +640,7 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			//std::string filename = clang_getCString(clang_getFileName(file));
 			CXFileUniqueID id;
 			clang_getFileUniqueID(file, &id);
-			if (NeedSkip(id) == true)
+			if (NeedSkipByFile(id) == true)
 				return CXChildVisit_Continue;
 
 			auto itFind = g_export_loc.find(id);
@@ -586,6 +668,14 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 		break;
 	case CXCursor_CXXBaseSpecifier:
 		{
+			auto source_loc = clang_getCursorLocation(cursor);
+			if (clang_Location_isInSystemHeader(source_loc))
+				return CXChildVisit_Continue;
+
+			if (g_bDebug)
+			{
+				display_debug_cursor(cursor, kind, source_loc);
+			}
 			//reg inh
 			CXFile file;
 			unsigned line;
@@ -596,7 +686,7 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			//std::string filename = clang_getCString(clang_getFileName(file));
 			CXFileUniqueID id;
 			clang_getFileUniqueID(file, &id);
-			if (NeedSkip(id) == true)
+			if (NeedSkipByFile(id) == true)
 				return CXChildVisit_Continue;
 
 			auto itFind = g_export_loc.find(id);
@@ -626,6 +716,13 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 	case CXCursor_EnumDecl:
 	case CXCursor_EnumConstantDecl:
 		{
+			auto source_loc = clang_getCursorLocation(cursor);
+			if (clang_Location_isInSystemHeader(source_loc))
+				return CXChildVisit_Continue;
+			if (g_bDebug)
+			{
+				display_debug_cursor(cursor, kind, source_loc);
+			}
 			CXFile file;
 			unsigned line;
 			unsigned column;
@@ -634,7 +731,7 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			//std::string filename = clang_getCString(clang_getFileName(file));
 			CXFileUniqueID id;
 			clang_getFileUniqueID(file, &id);
-			if (NeedSkip(id) == true)
+			if (NeedSkipByFile(id) == true)
 				return CXChildVisit_Continue;
 
 			auto itFind = g_export_loc.find(id);
@@ -663,7 +760,13 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 		break;
 	case CXCursor_VarDecl:
 		{
-
+			auto source_loc = clang_getCursorLocation(cursor);
+			if (clang_Location_isInSystemHeader(source_loc))
+				return CXChildVisit_Continue;
+			if (g_bDebug)
+			{
+				display_debug_cursor(cursor, kind, source_loc);
+			}
 			CXFile file;
 			unsigned line;
 			unsigned column;
@@ -671,7 +774,7 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
 			CXFileUniqueID id;
 			clang_getFileUniqueID(file, &id);
-			if (NeedSkip(id) == true)
+			if (NeedSkipByFile(id) == true)
 				return CXChildVisit_Continue;
 
 			auto itFind = g_export_loc.find(id);
@@ -703,7 +806,14 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 		break;
 	case CXCursor_FunctionDecl:
 		{
+			auto source_loc = clang_getCursorLocation(cursor);
+			if (clang_Location_isInSystemHeader(source_loc))
+				return CXChildVisit_Continue;
 
+			if (g_bDebug)
+			{
+				display_debug_cursor(cursor, kind, source_loc);
+			}
 			CXFile file;
 			unsigned line;
 			unsigned column;
@@ -711,7 +821,7 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
 			CXFileUniqueID id;
 			clang_getFileUniqueID(file, &id);
-			if (NeedSkip(id) == true)
+			if (NeedSkipByFile(id) == true)
 				return CXChildVisit_Continue;
 
 			auto itFind = g_export_loc.find(id);
@@ -740,7 +850,6 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 		break;
 	default:
 		{
-
 		}
 		break;
 	}
@@ -988,6 +1097,15 @@ void Tokenize(const std::string& str, std::vector<std::string>& tokens, const st
 	}
 }
 
+void visit_includes(CXFile included_file, CXSourceLocation* inclusion_stack, unsigned include_len, CXClientData client_data)
+{
+	CXFileUniqueID id;
+	clang_getFileUniqueID(included_file, &id);
+	AddSkipFile(id);
+
+}
+
+
 int main(int argc, char** argv)
 {
 	if (argc < 2)
@@ -1049,6 +1167,13 @@ int main(int argc, char** argv)
 					{
 						output_filename = cmd_second;
 					}
+					else if (cmd_first == "justdisplay")
+					{
+						if (cmd_second == "on")
+						{
+							g_bJustDisplay = true;
+						}
+					}
 					else if (cmd_first == "default_params")
 					{
 						if (cmd_second == "off")
@@ -1069,13 +1194,14 @@ int main(int argc, char** argv)
 	}
 
 	const char* ext_cxx_flag = "-xc++";
+	const char* ext_cxx_flag2 = "-fno-spell-checking";
 
 	for (auto& v : szHeaderDirs)
 	{
 		szParams.push_back(v.c_str());
 	}
 	szParams.push_back(ext_cxx_flag);
-	//szParams.push_back(ext_cxx_flag3);
+	szParams.push_back(ext_cxx_flag2);
 
 
 	std::string os;
@@ -1095,9 +1221,19 @@ int main(int argc, char** argv)
 
 
 		CXCursor C = clang_getTranslationUnitCursor(TU);
-		clang_visitChildren(C, TU_visitor, &content);
-		CXFileUniqueID id = {0,0,0};
-		NeedSkip(id);
+		if (g_bJustDisplay)
+		{
+			int indent = 0;
+			clang_visitChildren(C, visit_display, &indent);
+		}
+		else
+		{
+			clang_visitChildren(C, TU_visitor, &content);
+		}
+		
+		clang_getInclusions(TU, visit_includes, 0);
+
+
 		clang_disposeTranslationUnit(TU);
 
 		if (output_filename.empty() == false)
