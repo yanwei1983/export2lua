@@ -1,5 +1,6 @@
 
 #include <iostream>
+#include <fstream>
 #include <array>
 #include <clang-c/Index.h>
 #include <string>
@@ -8,15 +9,17 @@
 #include <map>
 
 #include<functional>
-
+std::string output_filename;
+bool g_bDebug = false;
+bool g_bDefault_Params = true;
 struct Visitor_Content
 {
-	Visitor_Content(std::string name = "", Visitor_Content* pParent = nullptr, std::string accessname="")
+	Visitor_Content(std::string name = "", Visitor_Content* pParent = nullptr, std::string accessname = "")
 		:m_name(name), m_pParent(pParent)
-		,m_accessname(accessname)
+		, m_accessname(accessname)
 	{
 		if (m_pParent)
-			m_pParent->m_setChild.push_back(this);
+			m_pParent->m_setChild[name] = this;
 	}
 	~Visitor_Content()
 	{
@@ -24,9 +27,9 @@ struct Visitor_Content
 	}
 	void destory()
 	{
-		for (auto v : m_setChild)
+		for (auto& v : m_setChild)
 		{
-			delete v;
+			delete v.second;
 		}
 		m_setChild.clear();
 	}
@@ -49,11 +52,11 @@ struct Visitor_Content
 	{
 		if (bNameSpace)
 		{
-			if(m_pParent->getAccessPrifix().empty())
+			if (m_pParent->getAccessPrifix().empty())
 				return m_accessname + "::";
 			return m_pParent->getAccessPrifix() + m_accessname + "::";
 		}
-		if(m_accessname.empty())
+		if (m_accessname.empty())
 			return "";
 		return m_accessname + "::";
 	}
@@ -65,12 +68,17 @@ struct Visitor_Content
 		return m_pParent->getWholeName();
 	}
 
+	bool hasChild(const std::string& name)
+	{
+		return m_setChild.find(name) != m_setChild.end();
+	}
+
 	bool bClass = false;
 	bool bNameSpace = false;
 	std::string m_name;
 	std::string m_accessname;
 	Visitor_Content* m_pParent = nullptr;
-	std::vector<Visitor_Content*> m_setChild;
+	std::map<std::string, Visitor_Content*> m_setChild;
 	typedef std::vector<std::string> ParamsDefaultVal;
 	struct OverLoadData
 	{
@@ -79,19 +87,19 @@ struct Visitor_Content
 		std::string funcptr_type;
 		ParamsDefaultVal default_val;
 	};
-	std::map<std::string, std::vector<OverLoadData> > m_vecFuncName;
-	std::map<std::string, std::vector<OverLoadData> > m_vecConName;
+	std::map<std::string, std::map<std::string, OverLoadData> > m_vecFuncName;
+	std::map<std::string, std::map<std::string, OverLoadData> > m_vecConName;
 	std::map<std::string, bool > m_vecValName;
-	std::vector<std::string> m_vecInhName;
-	std::vector<std::string> m_vecEnumName;
+	std::set<std::string> m_vecInhName;
+	std::set<std::string> m_vecEnumName;
 };
 
 
 CXTranslationUnit TU;
 typedef std::set<int> export_line_set;
-std::map<std::string, export_line_set> g_export_loc;
+std::map<CXFileUniqueID, export_line_set> g_export_loc;
 
-std::string visit_param(CXCursor cursor, int params_idx)
+std::string get_default_params(CXCursor cursor, int params_idx)
 {
 	//std::string varname = clang_getCString(clang_getCursorSpelling(cursor));
 
@@ -139,10 +147,12 @@ void visit_function(CXCursor cursor, Visitor_Content* pContent)
 {
 	std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
 	std::string typestr = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
-	auto& refSetOverLoad = pContent->m_vecFuncName[nsname];
-	Visitor_Content::OverLoadData overload_data;
+	auto& refMap = pContent->m_vecFuncName[nsname];
+	if (refMap.find(typestr) != refMap.end())
+		return;
+	auto& overload_data = refMap[typestr];
 	{
-		overload_data.funcptr_type += clang_getCString(clang_getTypeSpelling(clang_getResultType(clang_getCursorType(cursor))));
+		overload_data.funcptr_type = clang_getCString(clang_getTypeSpelling(clang_getResultType(clang_getCursorType(cursor))));
 
 		if (pContent->bClass == true)
 		{
@@ -155,7 +165,7 @@ void visit_function(CXCursor cursor, Visitor_Content* pContent)
 		{
 			overload_data.funcptr_type += "(*)(";
 		}
-		
+
 	}
 	overload_data.func_type = typestr;
 	overload_data.is_static = clang_CXXMethod_isStatic(cursor) != 0;
@@ -167,12 +177,15 @@ void visit_function(CXCursor cursor, Visitor_Content* pContent)
 			CXCursor args_cursor = clang_Cursor_getArgument(cursor, i);
 
 			overload_data.funcptr_type += clang_getCString(clang_getTypeSpelling(clang_getCursorType(args_cursor)));
-			if(i < nArgs-1)
+			if (i < nArgs - 1)
 				overload_data.funcptr_type += ", ";
 
-			std::string default_val = visit_param(args_cursor, i);
-			if (default_val.empty() == false)
-				overload_data.default_val.push_back(default_val);
+			if (g_bDefault_Params == true)
+			{
+				std::string default_val = get_default_params(args_cursor, i);
+				if (default_val.empty() == false)
+					overload_data.default_val.push_back(default_val);
+			}
 		}
 	}
 	overload_data.funcptr_type += ")";
@@ -180,7 +193,6 @@ void visit_function(CXCursor cursor, Visitor_Content* pContent)
 	{
 		overload_data.funcptr_type += "const";
 	}
-	refSetOverLoad.emplace_back(std::move(overload_data));
 
 
 	CXCursor* overridden_cursors;
@@ -202,8 +214,10 @@ void visit_constructor(CXCursor cursor, Visitor_Content* pContent)
 {
 	std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
 	std::string typestr = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
-	auto& refSetOverLoad = pContent->m_vecConName[nsname];
-	Visitor_Content::OverLoadData overload_data;
+	auto& refMap = pContent->m_vecConName[nsname];
+	if (refMap.find(typestr) != refMap.end())
+		return;
+	auto& overload_data = refMap[typestr];
 	//reg gloabl_func
 	int nArgs = clang_Cursor_getNumArguments(cursor);
 	{
@@ -212,15 +226,17 @@ void visit_constructor(CXCursor cursor, Visitor_Content* pContent)
 			CXCursor args_cursor = clang_Cursor_getArgument(cursor, i);
 			overload_data.func_type += ", ";
 			overload_data.func_type += clang_getCString(clang_getTypeSpelling(clang_getCursorType(args_cursor)));
-			std::string default_val = visit_param(args_cursor, i);
-			if (default_val.empty() == false)
-				overload_data.default_val.push_back(default_val);
+			if (g_bDefault_Params == true)
+			{
+				std::string default_val = get_default_params(args_cursor, i);
+				if (default_val.empty() == false)
+					overload_data.default_val.push_back(default_val);
+			}
 		}
 	}
 
-	refSetOverLoad.emplace_back(std::move(overload_data));
 }
-	
+
 
 enum CXChildVisitResult visit_enum(CXCursor cursor,
 	CXCursor parent,
@@ -236,7 +252,7 @@ enum CXChildVisitResult visit_enum(CXCursor cursor,
 		{
 			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
 			//clang_getEnumConstantDeclValue(cursor);
-			pContent->m_vecEnumName.push_back(nsname);
+			pContent->m_vecEnumName.insert(nsname);
 		}
 		break;
 	default:
@@ -245,6 +261,83 @@ enum CXChildVisitResult visit_enum(CXCursor cursor,
 
 	return CXChildVisit_Continue;
 }
+
+
+CXFileUniqueID g_lastfile = {0,0,0};
+std::set<CXFileUniqueID> g_finish_file;
+bool operator < (const CXFileUniqueID& lft, const CXFileUniqueID& rht)
+{
+	if (lft.data[0] == rht.data[0])
+	{
+		if (lft.data[1] == rht.data[1])
+		{
+			return lft.data[2] < rht.data[2];
+		}
+		else
+			return lft.data[1] < rht.data[1];
+	}
+	else
+		return lft.data[0] < rht.data[0];
+}
+
+bool operator > (const CXFileUniqueID& lft, const CXFileUniqueID& rht)
+{
+	if (lft.data[0] == rht.data[0])
+	{
+		if (lft.data[1] == rht.data[1])
+		{
+			return lft.data[2] > rht.data[2];
+		}
+		else
+			return lft.data[1] > rht.data[1];
+	}
+	else
+		return lft.data[0] > rht.data[0];
+}
+
+bool operator== (const CXFileUniqueID& lft, const CXFileUniqueID& rht)
+{
+	return (lft < rht) == false && (lft > rht) == false;
+}
+bool operator!= (const CXFileUniqueID& lft, const CXFileUniqueID& rht)
+{
+	return !(lft == rht);
+}
+
+bool NeedSkip(CXFileUniqueID id)
+{
+	auto itFind = g_finish_file.find(id);
+	if (itFind != g_finish_file.end())
+	{
+		g_lastfile = id;
+		if (g_bDebug)
+		{
+			printf("skip:%llx %llx %llx \n", id.data[0], id.data[1], id.data[2]);
+		}
+		return true;
+	}
+
+	if (g_lastfile != id)
+	{	
+		if (g_lastfile != CXFileUniqueID{ 0,0,0 })
+		{
+			g_finish_file.insert(g_lastfile);
+			if (g_bDebug)
+			{
+				printf("finish:%llx %llx %llx \n", g_lastfile.data[0], g_lastfile.data[1], g_lastfile.data[2]);
+			}
+		}
+		g_lastfile = id;
+		if (g_bDebug)
+		{
+			printf("start:%llx %llx %llx \n", id.data[0], id.data[1], id.data[2]);
+		}
+	}
+
+	
+	return false;
+}
+
 
 enum CXChildVisitResult TU_visitor(CXCursor cursor,
 	CXCursor parent,
@@ -256,13 +349,31 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 	if (clang_Location_isInSystemHeader(source_loc))
 		return CXChildVisit_Continue;
 
+
 	auto kind = clang_getCursorKind(cursor);
+
+	if (g_bDebug)
+	{
+		std::string kindname = clang_getCString(clang_getCursorKindSpelling(kind));
+
+		CXFile file;
+		unsigned line;
+		unsigned column;
+		unsigned offset;
+		clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
+
+		std::string filename = clang_getCString(clang_getFileName(file));
+		std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
+		printf("find:%d %s name:%s in file:%s\n", kind, kindname.c_str(), nsname.c_str(), filename.c_str());
+	}
+
+
 	switch (kind)
 	{
 	case CXCursor_MacroExpansion:
 		{
+
 			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
-			std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
 			if (nsname == "export_lua")
 			{
 				CXFile file;
@@ -270,8 +381,12 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 				unsigned column;
 				unsigned offset;
 				clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
-				std::string filename = clang_getCString(clang_getFileName(file));
-				auto& refSet = g_export_loc[filename];
+
+				CXFileUniqueID id;
+				clang_getFileUniqueID(file, &id);
+
+
+				auto& refSet = g_export_loc[id];
 				refSet.insert(line);
 			}
 
@@ -279,13 +394,30 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 		break;
 	case CXCursor_Namespace:
 		{
+			CXFile file;
+			unsigned line;
+			unsigned column;
+			unsigned offset;
+			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
+			CXFileUniqueID id;
+			clang_getFileUniqueID(file, &id);
+			if (NeedSkip(id) == true)
+				return CXChildVisit_Continue;
+
+
 			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
-			std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
 
 			//reg class
-			Visitor_Content* pNewContent = new Visitor_Content(nsname, pContent, nsname);
-			pNewContent->bNameSpace = true;
-			clang_visitChildren(cursor, &TU_visitor, pNewContent);
+			if (pContent->hasChild(nsname) == false)
+			{
+				Visitor_Content* pNewContent = new Visitor_Content(nsname, pContent, nsname);
+				pNewContent->bNameSpace = true;
+				clang_visitChildren(cursor, &TU_visitor, pNewContent);
+			}
+			else
+			{
+				clang_visitChildren(cursor, &TU_visitor, pContent->m_setChild[nsname]);
+			}
 
 		}
 		break;
@@ -294,59 +426,119 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 	case CXCursor_StructDecl:
 	case CXCursor_ClassDecl:
 		{
-			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
-			std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
 
 			CXFile file;
 			unsigned line;
 			unsigned column;
 			unsigned offset;
 			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
-			std::string filename = clang_getCString(clang_getFileName(file));
-			auto& refSet = g_export_loc[filename];
-			if (refSet.find(line) != refSet.end())
-			{
-				//reg class
-				Visitor_Content* pNewContent = new Visitor_Content(nsname, pContent, tname);
-				pNewContent->bClass = true;
-				clang_visitChildren(cursor, &TU_visitor, pNewContent);
-			}
+			//std::string filename = clang_getCString(clang_getFileName(file));
 
+			CXFileUniqueID id;
+			clang_getFileUniqueID(file, &id);
+			if (NeedSkip(id) == true)
+				return CXChildVisit_Continue;
+			auto itFind = g_export_loc.find(id);
+			if (itFind != g_export_loc.end())
+			{
+				auto& refSet = itFind->second;
+				if (refSet.find(line) != refSet.end())
+				{
+					std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
+					std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
+
+					//reg class
+					if (pContent->hasChild(nsname) == false)
+					{
+						if (g_bDebug)
+						{
+							printf("do:class\n");
+						}
+						Visitor_Content* pNewContent = new Visitor_Content(nsname, pContent, tname);
+						pNewContent->bClass = true;
+						clang_visitChildren(cursor, &TU_visitor, pNewContent);
+						
+					}
+					else
+					{
+						if (g_bDebug)
+						{
+							printf("skip:class\n");
+						}
+					}
+
+				}
+			}
 		}
 		break;
 	case CXCursor_CXXMethod:
 		{
-			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
-			std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
-
 			CXFile file;
 			unsigned line;
 			unsigned column;
 			unsigned offset;
 			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
-			std::string filename = clang_getCString(clang_getFileName(file));
-			auto& refSet = g_export_loc[filename];
-			if (refSet.find(line) != refSet.end())
+			//std::string filename = clang_getCString(clang_getFileName(file));
+
+			CXFileUniqueID id;
+			clang_getFileUniqueID(file, &id);
+			if (NeedSkip(id) == true)
+				return CXChildVisit_Continue;
+
+			auto itFind = g_export_loc.find(id);
+			if (itFind != g_export_loc.end())
 			{
-				visit_function(cursor, pContent);
+				auto& refSet = itFind->second;
+				if (refSet.find(line) != refSet.end())
+				{
+					if (g_bDebug)
+					{
+						printf("do:CXXMethod\n");
+					}
+					visit_function(cursor, pContent);
+				}
+				else
+				{
+					if (g_bDebug)
+					{
+						printf("skip:CXXMethod\n");
+					}
+				}
 			}
 		}
 		break;
 	case CXCursor_Constructor:
 		{
-			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
-			std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
-
 			CXFile file;
 			unsigned line;
 			unsigned column;
 			unsigned offset;
 			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
-			std::string filename = clang_getCString(clang_getFileName(file));
-			auto& refSet = g_export_loc[filename];
-			if (refSet.find(line) != refSet.end())
+			//std::string filename = clang_getCString(clang_getFileName(file));
+			CXFileUniqueID id;
+			clang_getFileUniqueID(file, &id);
+			if (NeedSkip(id) == true)
+				return CXChildVisit_Continue;
+
+			auto itFind = g_export_loc.find(id);
+			if (itFind != g_export_loc.end())
 			{
-				visit_constructor(cursor, pContent);
+				auto& refSet = itFind->second;
+				if (refSet.find(line) != refSet.end())
+				{
+					if (g_bDebug)
+					{
+						printf("do:Constructor\n");
+					}
+					visit_constructor(cursor, pContent);
+				}
+				else
+				{
+					if (g_bDebug)
+					{
+						printf("skip:Constructor\n");
+					}
+				}
 			}
 		}
 		break;
@@ -357,97 +549,190 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 		break;
 	case CXCursor_FieldDecl:
 		{
-			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
-			std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
 
 			CXFile file;
 			unsigned line;
 			unsigned column;
 			unsigned offset;
 			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
-			std::string filename = clang_getCString(clang_getFileName(file));
-			auto& refSet = g_export_loc[filename];
-			if (refSet.find(line) != refSet.end())
+			//std::string filename = clang_getCString(clang_getFileName(file));
+			CXFileUniqueID id;
+			clang_getFileUniqueID(file, &id);
+			if (NeedSkip(id) == true)
+				return CXChildVisit_Continue;
+
+			auto itFind = g_export_loc.find(id);
+			if (itFind != g_export_loc.end())
 			{
-				pContent->m_vecValName[nsname] = false;;
+				auto& refSet = itFind->second;
+				if (refSet.find(line) != refSet.end())
+				{
+					std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
+					pContent->m_vecValName[nsname] = false;
+					if (g_bDebug)
+					{
+						printf("do:FieldDecl\n");
+					}
+				}
+				else
+				{
+					if (g_bDebug)
+					{
+						printf("skip:FieldDecl\n");
+					}
+				}
 			}
 		}
 		break;
 	case CXCursor_CXXBaseSpecifier:
 		{
 			//reg inh
-			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
-			std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
 			CXFile file;
 			unsigned line;
 			unsigned column;
 			unsigned offset;
 			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
-			std::string filename = clang_getCString(clang_getFileName(file));
-			auto& refSet = g_export_loc[filename];
-			if (refSet.find(line) != refSet.end())
+
+			//std::string filename = clang_getCString(clang_getFileName(file));
+			CXFileUniqueID id;
+			clang_getFileUniqueID(file, &id);
+			if (NeedSkip(id) == true)
+				return CXChildVisit_Continue;
+
+			auto itFind = g_export_loc.find(id);
+			if (itFind != g_export_loc.end())
 			{
-				pContent->m_vecInhName.push_back(tname);
+				auto& refSet = itFind->second;
+				if (refSet.find(line) != refSet.end())
+				{
+					//std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
+					std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
+					pContent->m_vecInhName.insert(tname);
+					if (g_bDebug)
+					{
+						printf("do:CXXBase\n");
+					}
+				}
+				else
+				{
+					if (g_bDebug)
+					{
+						printf("skip:CXXBase\n");
+					}
+				}
 			}
 		}
 		break;
 	case CXCursor_EnumDecl:
 	case CXCursor_EnumConstantDecl:
 		{
-			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
-			std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
-
 			CXFile file;
 			unsigned line;
 			unsigned column;
 			unsigned offset;
 			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
-			std::string filename = clang_getCString(clang_getFileName(file));
-			auto& refSet = g_export_loc[filename];
-			if (refSet.find(line) != refSet.end())
+			//std::string filename = clang_getCString(clang_getFileName(file));
+			CXFileUniqueID id;
+			clang_getFileUniqueID(file, &id);
+			if (NeedSkip(id) == true)
+				return CXChildVisit_Continue;
+
+			auto itFind = g_export_loc.find(id);
+			if (itFind != g_export_loc.end())
 			{
-				//reg global val;	
-				clang_visitChildren(cursor, &visit_enum, pContent);
+				auto& refSet = itFind->second;
+				if (refSet.find(line) != refSet.end())
+				{
+					if (g_bDebug)
+					{
+						printf("do:Enum\n");
+					}
+					//reg global val;	
+					clang_visitChildren(cursor, &visit_enum, pContent);
+				}
+				else
+				{
+					if (g_bDebug)
+					{
+						printf("skip:Enum\n");
+					}
+				}
 			}
 
 		}
 		break;
 	case CXCursor_VarDecl:
 		{
-			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
-			std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
 
 			CXFile file;
 			unsigned line;
 			unsigned column;
 			unsigned offset;
 			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
-			std::string filename = clang_getCString(clang_getFileName(file));
-			auto& refSet = g_export_loc[filename];
-			if (refSet.find(line) != refSet.end())
-			{
-				//reg global val;
-				pContent->m_vecValName[nsname] = true;
+			CXFileUniqueID id;
+			clang_getFileUniqueID(file, &id);
+			if (NeedSkip(id) == true)
+				return CXChildVisit_Continue;
 
+			auto itFind = g_export_loc.find(id);
+			if (itFind != g_export_loc.end())
+			{
+				auto& refSet = itFind->second;
+				if (refSet.find(line) != refSet.end())
+				{
+					if (g_bDebug)
+					{
+						printf("do:VarDecl\n");
+					}
+					//reg global val;
+					std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
+					//std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
+					pContent->m_vecValName[nsname] = true;
+
+				}
+				else
+				{
+					if (g_bDebug)
+					{
+						printf("skip:VarDecl\n");
+					}
+				}
 			}
 
 		}
 		break;
 	case CXCursor_FunctionDecl:
 		{
-			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
-			std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
 
 			CXFile file;
 			unsigned line;
 			unsigned column;
 			unsigned offset;
 			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
-			std::string filename = clang_getCString(clang_getFileName(file));
-			auto& refSet = g_export_loc[filename];
-			if (refSet.find(line) != refSet.end())
+			CXFileUniqueID id;
+			clang_getFileUniqueID(file, &id);
+			if (NeedSkip(id) == true)
+				return CXChildVisit_Continue;
+
+			auto itFind = g_export_loc.find(id);
+			if (itFind != g_export_loc.end())
 			{
-				visit_function(cursor, pContent);
+				auto& refSet = itFind->second;
+				if (refSet.find(line) != refSet.end())
+				{
+					if (g_bDebug)
+					{
+						printf("do:funciton\n");
+					}
+					visit_function(cursor, pContent);
+				}
+				else
+				{
+					if (g_bDebug)
+					{
+						printf("skip:funciton\n");
+					}
+				}
 			}
 
 
@@ -455,8 +740,7 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 		break;
 	default:
 		{
-			//std::string kindname = clang_getCString(clang_getCursorKindSpelling(kind));
-			//printf("skip:%d %s\n", kind, kindname.c_str());
+
 		}
 		break;
 	}
@@ -468,7 +752,7 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 {
 	char szBuf[4096];
 	//class add
-	if(pContent->bClass)
+	if (pContent->bClass)
 	{
 		sprintf_s(szBuf, 4096, "lua_tinker::class_add<%s>(L, \"%s\",true);\n", pContent->getAccessName().c_str(), pContent->getWholeName().c_str());	//class_add
 		os += szBuf;
@@ -489,26 +773,27 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 			const auto& refDataSet = v.second;
 			if (refDataSet.size() == 1) //no overload
 			{
-				const auto& refData = refDataSet[0];
+				const auto& refData = refDataSet.begin()->second;
 				std::string def_params;
 				for (const auto& dv : refData.default_val)
 				{
 					def_params += ", ";
 					def_params += dv;
 				}
-				
+
 				sprintf_s(szBuf, 4096, "lua_tinker::def(L, \"%s\",&%s%s);\n", (pContent->getWholeName() + v.first).c_str(), (pContent->getAccessPrifix() + v.first).c_str(), def_params.c_str());
 				os += szBuf;
-				
+
 			}
 			else
 			{
 				//overload
 				std::string overload_params;
 				std::string def_params;
-				size_t nDefaultParamsStart= 1;
-				for (const auto& refData : refDataSet)
+				size_t nDefaultParamsStart = 1;
+				for (const auto& it_refData : refDataSet)
 				{
+					const auto& refData = it_refData.second;
 					std::string def_params_decl;
 					for (const auto& dv : refData.default_val)
 					{
@@ -524,7 +809,7 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 
 					if (overload_params.empty() == false)
 						overload_params += ", ";
-					sprintf_s(szBuf, 4096, "\n\tlua_tinker::make_functor_ptr((%s)(&%s)%s)", refData.funcptr_type.c_str(), (pContent->getAccessPrifix()+ v.first).c_str(), def_params_decl.c_str());
+					sprintf_s(szBuf, 4096, "\n\tlua_tinker::make_functor_ptr((%s)(&%s)%s)", refData.funcptr_type.c_str(), (pContent->getAccessPrifix() + v.first).c_str(), def_params_decl.c_str());
 					overload_params += szBuf;
 				}
 
@@ -540,24 +825,25 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 		//class CXXMethod
 		for (const auto& v : pContent->m_vecFuncName)
 		{
+
 			const auto& refDataSet = v.second;
 			if (refDataSet.size() == 1) //no overload
 			{
-				const auto& refData = refDataSet[0];
+				const auto& refData = refDataSet.begin()->second;
 				std::string def_params;
 				for (const auto& dv : refData.default_val)
 				{
 					def_params += ", ";
 					def_params += dv;
 				}
-					
+
 
 				if (refData.is_static)
 					sprintf_s(szBuf, 4096, "lua_tinker::class_def_static<%s>(L, \"%s\",&%s%s);\n", pContent->getAccessName().c_str(), v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str(), def_params.c_str());
 				else
 					sprintf_s(szBuf, 4096, "lua_tinker::class_def<%s>(L, \"%s\",&%s%s);\n", pContent->getAccessName().c_str(), v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str(), def_params.c_str());
 				os += szBuf;
-				
+
 
 			}
 			else
@@ -566,8 +852,9 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 				std::string overload_params;
 				size_t nDefaultParamsStart = 1;
 				std::string def_params;
-				for (const auto& refData : refDataSet)
+				for (const auto& it_refData : refDataSet)
 				{
+					const auto& refData = it_refData.second;
 					std::string def_params_decl;
 					for (const auto& dv : refData.default_val)
 					{
@@ -586,10 +873,10 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 					sprintf_s(szBuf, 4096, "\n\tlua_tinker::make_member_functor_ptr((%s)(&%s)%s)", refData.funcptr_type.c_str(), (pContent->getAccessPrifix() + v.first).c_str(), def_params_decl.c_str());
 					overload_params += szBuf;
 				}
-				
+
 				sprintf_s(szBuf, 4096, "lua_tinker::class_def<%s>(L, \"%s\", lua_tinker::args_type_overload_member_functor(%s)%s);\n",
-					pContent->getAccessName().c_str(), v.first.c_str(), overload_params.c_str(),def_params.c_str());
-				
+					pContent->getAccessName().c_str(), v.first.c_str(), overload_params.c_str(), def_params.c_str());
+
 
 				os += szBuf;
 			}
@@ -597,14 +884,16 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 
 		}
 	}
-	
+
 	for (const auto& v : pContent->m_vecConName)
 	{
+
+
 		const auto& refDataSet = v.second;
 		if (refDataSet.size() == 1) //no overload
 		{
-			const auto& refData = refDataSet[0];
-			
+			const auto& refData = refDataSet.begin()->second;
+
 			std::string def_params;
 			for (const auto& dv : refData.default_val)
 			{
@@ -621,8 +910,9 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 			std::string overload_params;
 			size_t nDefaultParamsStart = 1;
 			std::string def_params;
-			for (const auto& refData : refDataSet)
+			for (const auto& it_refData : refDataSet)
 			{
+				const auto& refData = it_refData.second;
 				std::string def_params_decl;
 				for (const auto& dv : refData.default_val)
 				{
@@ -641,7 +931,7 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 				overload_params += szBuf;
 			}
 
-			sprintf_s(szBuf, 4096, "lua_tinker::class_con<%s>(L,lua_tinker::args_type_overload_constructor(%s)%s);\n", pContent->getAccessName().c_str(), overload_params.c_str(),def_params.c_str());
+			sprintf_s(szBuf, 4096, "lua_tinker::class_con<%s>(L,lua_tinker::args_type_overload_constructor(%s)%s);\n", pContent->getAccessName().c_str(), overload_params.c_str(), def_params.c_str());
 			os += szBuf;
 		}
 
@@ -652,7 +942,7 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 	{
 		for (const auto& v : pContent->m_vecValName)
 		{
-			sprintf_s(szBuf, 4096, "lua_tinker::set(L,\"%s\",%s);\n", (pContent->getWholeName()+v.first).c_str(), (pContent->getAccessPrifix() +v.first).c_str());
+			sprintf_s(szBuf, 4096, "lua_tinker::set(L,\"%s\",%s);\n", (pContent->getWholeName() + v.first).c_str(), (pContent->getAccessPrifix() + v.first).c_str());
 			os += szBuf;
 		}
 	}
@@ -660,25 +950,42 @@ void visit_contnet(Visitor_Content* pContent, std::string& os)
 	{
 		for (const auto& v : pContent->m_vecValName)
 		{
-			if(v.second == true)
+			if (v.second == true)
 				sprintf_s(szBuf, 4096, "lua_tinker::class_mem_static<%s>(L,\"%s\",&%s);\n", pContent->getAccessName().c_str(), v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str());
 			else
-				sprintf_s(szBuf, 4096, "lua_tinker::class_mem<%s>(L,\"%s\",&%s);\n", pContent->getAccessName().c_str(), v.first.c_str(), (pContent->getAccessPrifix() +v.first).c_str());
+				sprintf_s(szBuf, 4096, "lua_tinker::class_mem<%s>(L,\"%s\",&%s);\n", pContent->getAccessName().c_str(), v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str());
 			os += szBuf;
 		}
 	}
 
 	for (const auto& v : pContent->m_vecEnumName)
 	{
-		sprintf_s(szBuf, 4096, "lua_tinker::set(L, \"%s\",%s);\n", (pContent->getWholeName() +v).c_str(), (pContent->getAccessPrifix() +v).c_str());
+		sprintf_s(szBuf, 4096, "lua_tinker::set(L, \"%s\",%s);\n", (pContent->getWholeName() + v).c_str(), (pContent->getAccessPrifix() + v).c_str());
 		os += szBuf;
 	}
 
-	for (auto v : pContent->m_setChild)
+	for (auto& v : pContent->m_setChild)
 	{
-		visit_contnet(v, os);
+		visit_contnet(v.second, os);
 	}
 
+}
+
+void Tokenize(const std::string& str, std::vector<std::string>& tokens, const std::string& delimiters)
+{
+	// Skip delimiters at beginning.  
+	std::string::size_type lastPos = str.find_first_not_of(delimiters, 0);
+	// Find first "non-delimiter".  
+	std::string::size_type pos = str.find_first_of(delimiters, lastPos);
+	while (std::string::npos != pos || std::string::npos != lastPos)
+	{
+		// Found a token, add it to the vector.  
+		tokens.push_back(str.substr(lastPos, pos - lastPos));
+		// Skip delimiters.  Note the "not_of"  
+		lastPos = str.find_first_not_of(delimiters, pos);
+		// Find next "non-delimiter"  
+		pos = str.find_first_of(delimiters, lastPos);
+	}
 }
 
 int main(int argc, char** argv)
@@ -689,41 +996,144 @@ int main(int argc, char** argv)
 		return 0;
 	}
 
-	const char* szParam[] =
+	std::vector<std::string> szCppFiles;
+
+	std::vector<const char*> szParams;
+	std::vector<std::string> szHeaderDirs;
+	for (int i = 1; i < argc; i++)
 	{
-		"-xc++",
-	};
+		std::string strCmd(argv[i]);
+		if(strCmd[0] == '-') //cmd perfix
+		{
+			std::string cmdPerfix = strCmd.substr(0, 2);
+			if (cmdPerfix == "-I")
+			{
+				szHeaderDirs.push_back(strCmd);
+			}
+			else if (cmdPerfix == "-v")
+			{
+				g_bDebug = true;
+			}
+			else if (cmdPerfix == "--")
+			{
+				std::string cmd = strCmd.substr(2);
+				std::string::size_type pos = cmd.find_first_of('=');
+				if (std::string::npos != pos)
+				{
+					std::string cmd_first = cmd.substr(0, pos);
+					std::string cmd_second = cmd.substr(pos+1);
+					if (cmd_first == "include")
+					{
+						//read file
+						std::ifstream input_file(fopen(cmd_second.c_str(), "r"));
+						if (input_file.is_open())
+						{
+							std::string include_dirs;
+							input_file >> include_dirs;
+							Tokenize(include_dirs, szHeaderDirs, ";");
+						}
+					}
+					else if (cmd_first == "cpps")
+					{
+						//read file
+						std::ifstream input_file(fopen(cmd_second.c_str(), "r"));
+						if (input_file.is_open())
+						{
+							std::string cpp_files;
+							input_file >> cpp_files;
+							Tokenize(cpp_files, szCppFiles, ";");
+						}
+
+					}
+					else if (cmd_first == "output")
+					{
+						output_filename = cmd_second;
+					}
+					else if (cmd_first == "default_params")
+					{
+						if (cmd_second == "off")
+						{
+							g_bDefault_Params = false;
+						}
+					}
+
+				}
+
+
+			}
+		}
+		else
+		{
+			szCppFiles.push_back(strCmd);
+		}
+	}
+
+	const char* ext_cxx_flag = "-xc++";
+
+	for (auto& v : szHeaderDirs)
+	{
+		szParams.push_back(v.c_str());
+	}
+	szParams.push_back(ext_cxx_flag);
+	//szParams.push_back(ext_cxx_flag3);
+
+
 	std::string os;
-	char szBuf[4096];
-	os += "//this file was auto generated, plz don't modify it\n";
-	os += "#include \"lua_tinker.h\"\n";
 
 	Visitor_Content content;
 	CXIndex Index = clang_createIndex(0, 0);
-	int nIdx = 1;
-	while (nIdx < argc)
+
+	for (auto& v : szCppFiles)
 	{
-		TU = clang_parseTranslationUnit(Index, argv[nIdx], (const char**)&szParam, 1,
+		if (output_filename.empty() == false)
+		{
+			printf("file:%s process start\n", v.c_str());
+		}
+
+		TU = clang_parseTranslationUnit(Index, v.c_str(), szParams.data(), szParams.size(),
 			0, 0, CXTranslationUnit_DetailedPreprocessingRecord | CXTranslationUnit_SkipFunctionBodies);
 
 
 		CXCursor C = clang_getTranslationUnitCursor(TU);
 		clang_visitChildren(C, TU_visitor, &content);
-
+		CXFileUniqueID id = {0,0,0};
+		NeedSkip(id);
 		clang_disposeTranslationUnit(TU);
-		sprintf_s(szBuf, 4096, "#include \"%s\"\n", argv[nIdx]);	//normal
-		os += szBuf;
 
-		nIdx++;
+		if (output_filename.empty() == false)
+		{
+			printf("file:%s processed\n", v.c_str());
+		}
 	}
+
+
 	clang_disposeIndex(Index);
+	if (g_bDebug)
+	{
+		printf("press any key to start process content");
+		getchar();
+	}
 
-	os += "void export_to_lua_auto(lua_State* L)\n";
-	os += "{\n";
+	visit_contnet(&content, os);
+	if (g_bDebug)
+	{
+		printf("global:func:%d, child:%d", content.m_vecFuncName.size(), content.m_setChild.size());
+		printf("press any key to start output");
+		getchar();
+	}
 
-	visit_contnet(&content,os);
-	os += "}\n";
 
-	printf("%s", os.c_str());
+	if(output_filename.empty())
+		printf("%s", os.c_str());
+	else
+	{
+		std::ofstream output_file(fopen(output_filename.c_str(), "w+"));
+		output_file << os;
+	}
+	if (g_bDebug)
+	{
+		printf("press any key to exit");
+		getchar();
+	}
 	return 0;
 }
