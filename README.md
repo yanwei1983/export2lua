@@ -13,22 +13,23 @@
 ***
 
 usage： export2lua [cppfile] [-Iheaderdir] ... [-Iheaderdir]
-[--cpps=cpps_list_file]  cpps_list_file use ';' to separate cpp_file from file like a.cpp;b.cpp;test/c.cpp;  
-[--include=header_dirs_file] header_dirs_file use ';' to separate header_dirs from file like -Itest;-I../game;  
-[--output=output_file] 
-[--exportclass=export_class_name_file]
-[--keyword=export_lua]
+[--cpps=cpps_list_file]  use ';' to separate source files  from file like a.cpp;b.cpp;test/c.cpp;  
+[--include=header_dirs_file]  use ';' to separate include dirs from file like -Itest;-I../game;  
+[--output=output_file] output file name
+[--exportclass=export_class_name_file]   use ';' to separate which class need export from file 
+[--keyword=export_lua] keyword default is export_lua, if set to empty will output all decl
 [--skip_default_params] did not output default_params  
 [--skip_function]  did not output function  
-[--skip_class]  did not output function  
-[--skip_namespace]  did not output function 
-[--skip_var]  did not output function 
-[--skip_field]  did not output function 
-[--skip_enum]  did not output function 
-[--skip_method]  did not output function  
-[--skip_method]  did not output function  
-[--skip_method]  did not output function  [--skip_method]  did not output function  
-[-v]   will output DEBUG info  
+[--skip_class]  did not output class  
+[--skip_namespace]  did not output namespace 
+[--skip_var]  did not output var 
+[--skip_field]  did not output class field 
+[--skip_enum]  did not output enum 
+[--skip_method]  did not output method 
+[--skip_method_static]  did not static method 
+[--skip_con]  did not output Constructor  
+[--skip_overload]  did not output overload function  
+[-v] will output DEBUG info  
 ***
 
 
