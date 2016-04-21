@@ -12,13 +12,20 @@
 
 ***
 
-usage： export2lua [cppfile] [-Iheaderdir] ... [-Iheaderdir] [--cpps=cpps_list_file] [--include=header_dirs_file] [--output=output_file] [--default_prarams=off] [-v]  
+usage： export2lua [cppfile] [-Iheaderdir] ... [-Iheaderdir]
+[--cpps=cpps_list_file]  cpps_list_file use ';' to separate cpp_file from file like a.cpp;b.cpp;test/c.cpp;  
+[--include=header_dirs_file] header_dirs_file use ';' to separate header_dirs from file like -Itest;-I../game;  
+[--output=output_file] 
+[--exportclass=export_class_name_file]
+[--keyword=export_lua]
+[--skip_default_params] did not output default_params  
+[--skip_function]  did not output function  
+[--skip_function]  did not output function  
+[--skip_function]  did not output function  [--skip_function]  did not output function  [--skip_function]  did not output function  [--skip_function]  did not output function  [--skip_function]  did not output function  
+[-v]   will output DEBUG info  
 ***
 
-* cpps_list_file use ';' to separate cpp_file from file like a.cpp;b.cpp;test/c.cpp;  
-* header_dirs_file use ';' to separate header_dirs from file like -Itest;-I../game;  
-* if default_prarams == off did not output default_params  
-* if -v is set, will output DEBUG info  
+
 
 
 ***
