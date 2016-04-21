@@ -10,7 +10,6 @@ export2lua class TestBase
 
 export2lua class TestA : public TestBase
 {
-public:
 	export2lua TestA();
 	export2lua TestA(int a);
 	export2lua TestA(int a, int b, int c = 10);
@@ -27,7 +26,6 @@ public:
 	export2lua static int s_val;
 	using int_ptr = int*;
 	typedef int int_type;
-public:
 	export2lua struct Iterator
 	{
 		export2lua Iterator(int, int);
@@ -45,12 +43,12 @@ namespace NM
 
 	export2lua class TestA : public TestBase
 	{
-	public:
 		export2lua TestA();
 		export2lua TestA(int a);
 		export2lua TestA(int a, int b, int c = 10);
-
 		export2lua int TestFunc(int);
+	public:
+
 		export2lua int TestFunc(int, int, int c = 0);
 
 		export2lua static void StaticFunc();

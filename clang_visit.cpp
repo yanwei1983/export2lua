@@ -129,7 +129,7 @@ void display_debug_cursor(CXCursor& cursor, CXCursorKind& kind, CXSourceLocation
 
 	std::string filename = getClangString(clang_getFileName(file));
 	std::string nsname = getClangString(clang_getCursorSpelling(cursor));
-	printf("find:%d %s name:%s in file:%s %d\n", kind, kindname.c_str(), nsname.c_str(), filename.c_str(), (clang_isDeclaration(kind)));
+	printf("find:%d %s name:%s in file:%s line:%d \n", kind, kindname.c_str(), nsname.c_str(), filename.c_str(), line);
 
 }
 
@@ -485,6 +485,7 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			{
 				display_debug_cursor(cursor, kind, source_loc);
 			}
+
 			CXFile file;
 			unsigned line;
 			unsigned column;
@@ -524,12 +525,23 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			{
 				display_debug_cursor(cursor, kind, source_loc);
 			}
+			CX_CXXAccessSpecifier access_kind = clang_getCXXAccessSpecifier(cursor);
+			if (access_kind != CX_CXXPublic && access_kind != CX_CXXInvalidAccessSpecifier)
+			{
+				if (g_bDebug)
+				{
+					printf("skip:ClassDecl no public\n");
+				}
+				return CXChildVisit_Continue;
+			}
+
 			CXFile file;
 			unsigned line;
 			unsigned column;
 			unsigned offset;
 			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
 			//std::string filename = getClangString(clang_getFileName(file));
+
 
 			CXFileUniqueID id;
 			clang_getFileUniqueID(file, &id);
@@ -585,13 +597,23 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			{
 				display_debug_cursor(cursor, kind, source_loc);
 			}
+			CX_CXXAccessSpecifier access_kind = clang_getCXXAccessSpecifier(cursor);
+			if (access_kind != CX_CXXPublic && access_kind != CX_CXXInvalidAccessSpecifier)
+			{
+				if (g_bDebug)
+				{
+					printf("skip:CXXMethod no public\n");
+				}
+				return CXChildVisit_Continue;
+			}
+
 			CXFile file;
 			unsigned line;
 			unsigned column;
 			unsigned offset;
 			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
 			//std::string filename = getClangString(clang_getFileName(file));
-
+			
 			CXFileUniqueID id;
 			clang_getFileUniqueID(file, &id);
 			if (NeedSkipByFile(id) == true)
@@ -637,6 +659,17 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			{
 				display_debug_cursor(cursor, kind, source_loc);
 			}
+
+			CX_CXXAccessSpecifier access_kind = clang_getCXXAccessSpecifier(cursor);
+			if (access_kind != CX_CXXPublic && access_kind != CX_CXXInvalidAccessSpecifier)
+			{
+				if (g_bDebug)
+				{
+					printf("skip:Constructor no public\n");
+				}
+				return CXChildVisit_Continue;
+			}
+
 			CXFile file;
 			unsigned line;
 			unsigned column;
@@ -647,6 +680,7 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			clang_getFileUniqueID(file, &id);
 			if (NeedSkipByFile(id) == true)
 				return CXChildVisit_Continue;
+
 
 			if (g_strKeyword.empty() == false)
 			{
@@ -666,6 +700,8 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 					return CXChildVisit_Continue;
 				}
 			}
+			
+
 			if (g_bDebug)
 			{
 				printf("do:Constructor\n");
@@ -687,6 +723,16 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			{
 				display_debug_cursor(cursor, kind, source_loc);
 			}
+			CX_CXXAccessSpecifier access_kind = clang_getCXXAccessSpecifier(cursor);
+			if (access_kind != CX_CXXPublic && access_kind != CX_CXXInvalidAccessSpecifier)
+			{
+				if (g_bDebug)
+				{
+					printf("skip:FieldDecl no public\n");
+				}
+				return CXChildVisit_Continue;
+			}
+
 			CXFile file;
 			unsigned line;
 			unsigned column;
@@ -730,6 +776,16 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			auto source_loc = clang_getCursorLocation(cursor);
 			if (clang_Location_isInSystemHeader(source_loc))
 				return CXChildVisit_Continue;
+
+			CX_CXXAccessSpecifier access_kind = clang_getCXXAccessSpecifier(cursor);
+			if (access_kind != CX_CXXPublic && access_kind != CX_CXXInvalidAccessSpecifier)
+			{
+				if (g_bDebug)
+				{
+					printf("skip:CXXBaseSpecifier no public\n");
+				}
+				return CXChildVisit_Continue;
+			}
 
 			if (g_bDebug)
 			{
@@ -786,6 +842,16 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			{
 				display_debug_cursor(cursor, kind, source_loc);
 			}
+			CX_CXXAccessSpecifier access_kind = clang_getCXXAccessSpecifier(cursor);
+			if (access_kind != CX_CXXPublic && access_kind != CX_CXXInvalidAccessSpecifier)
+			{
+				if (g_bDebug)
+				{
+					printf("skip:EnumDecl no public\n");
+				}
+				return CXChildVisit_Continue;
+			}
+
 			CXFile file;
 			unsigned line;
 			unsigned column;
@@ -839,6 +905,16 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			{
 				display_debug_cursor(cursor, kind, source_loc);
 			}
+			CX_CXXAccessSpecifier access_kind = clang_getCXXAccessSpecifier(cursor);
+			if (access_kind != CX_CXXPublic && access_kind != CX_CXXInvalidAccessSpecifier)
+			{
+				if (g_bDebug)
+				{
+					printf("skip:VarDecl no public\n");
+				}
+				return CXChildVisit_Continue;
+			}
+
 			CXFile file;
 			unsigned line;
 			unsigned column;
@@ -890,6 +966,8 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			{
 				display_debug_cursor(cursor, kind, source_loc);
 			}
+			
+
 			CXFile file;
 			unsigned line;
 			unsigned column;
@@ -1390,6 +1468,7 @@ int main(int argc, char** argv)
 	}
 	else
 	{
+		printf("start gen export_code,plz waiting");
 		std::ofstream output_file(fopen(output_filename.c_str(), "w+"));
 		if (os.empty() == false)
 			output_file << os;
