@@ -12,7 +12,7 @@
 
 ***
 
-usage： export2lua [cppfile] [-Iheaderdir] ... [-Iheaderdir]
+usage： export2lua [cppfile] [-Iheaderdir] ... [-Iheaderdir]  
 [--cpps=cpps_list_file]  use ';' to separate source files  from file like a.cpp;b.cpp;test/c.cpp;   
 [--include=header_dirs_file]  use ';' to separate include dirs from file like -Itest;-I../game;   
 [--output=output_file] output file name  
