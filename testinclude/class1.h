@@ -1,6 +1,6 @@
-
+#pragma once
 #define export_lua
-
+#define PURE_VIRTUAL_FUNCTION_0 {return 0;}
 namespace TT
 {
 	export_lua int GlobalFunction(int a);

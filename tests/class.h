@@ -1,93 +1,95 @@
 #pragma once
 #include "class2.h"
+#define export2lua
 
-export_lua int GlobalFunction(int) PURE_VIRTUAL_FUNCTION_0
-export_lua int GlobalFunction(int,int,int c= 0);
+
+export2lua int GlobalFunction(int) PURE_VIRTUAL_FUNCTION_0
+export2lua int GlobalFunction(int,int,int c= 0);
 
 class TestBase
 {};
 
-export_lua class TestA : public TestBase
+export2lua class TestA : public TestBase
 {
 public:
-	export_lua TestA();
-	export_lua TestA(int a);
-	export_lua TestA(int a, int b, int c = 0);
+	export2lua TestA();
+	export2lua TestA(int a);
+	export2lua TestA(int a, int b, int c = 0);
 
-	export_lua void TestVec(const std::vector& v);
+	export2lua void TestVec(const std::vector& v);
 
-	export_lua int TestFunc(int);
-	export_lua int TestFunc(int,int,int c= 0);
+	export2lua int TestFunc(int);
+	export2lua int TestFunc(int,int,int c= 0);
 
-	export_lua static void StaticFunc();
-	export_lua int m_val;
-	export_lua static int s_val;
+	export2lua static void StaticFunc();
+	export2lua int m_val;
+	export2lua static int s_val;
 
 public:
-	export_lua struct Iterator
+	export2lua struct Iterator
 	{
-		export_lua Iterator(int, int);
-		export_lua void Move();
+		export2lua Iterator(int, int);
+		export2lua void Move();
 	};
 };
 
 namespace NM
 {
-	export_lua int GloabalFunction(int);
-	export_lua int GloabalFunction(int, int, int c = 0);
+	export2lua int GloabalFunction(int);
+	export2lua int GloabalFunction(int, int, int c = 0);
 
-	export_lua class TestBase
+	export2lua class TestBase
 	{};
 
-	export_lua class TestA : public TestBase
+	export2lua class TestA : public TestBase
 	{
 	public:
-		export_lua TestA();
-		export_lua TestA(int a);
-		export_lua TestA(int a, int b, int c = 0);
+		export2lua TestA();
+		export2lua TestA(int a);
+		export2lua TestA(int a, int b, int c = 0);
 
-		export_lua int TestFunc(int);
-		export_lua int TestFunc(int, int, int c = 0);
+		export2lua int TestFunc(int);
+		export2lua int TestFunc(int, int, int c = 0);
 
-		export_lua static void StaticFunc();
-		export_lua int m_val;
-		export_lua static int s_val;
+		export2lua static void StaticFunc();
+		export2lua int m_val;
+		export2lua static int s_val;
 
 	public:
-		export_lua struct Iterator
+		export2lua struct Iterator
 		{
-			export_lua Iterator(int, int);
-			export_lua void Move();
+			export2lua Iterator(int, int);
+			export2lua void Move();
 		};
 	};
 
 	namespace detail
 	{
-		export_lua int GloabalFunction(int);
-		export_lua int GloabalFunction(int, int, int c = 0);
+		export2lua int GloabalFunction(int);
+		export2lua int GloabalFunction(int, int, int c = 0);
 
-		export_lua class TestBase
+		export2lua class TestBase
 		{};
 
-		export_lua class TestA : public TestBase
+		export2lua class TestA : public TestBase
 		{
 		public:
-			export_lua TestA();
-			export_lua TestA(int a);
-			export_lua TestA(int a, int b, int c = 0);
+			export2lua TestA();
+			export2lua TestA(int a);
+			export2lua TestA(int a, int b, int c = 0);
 
-			export_lua int TestFunc(int);
-			export_lua int TestFunc(int, int, int c = 0);
+			export2lua int TestFunc(int);
+			export2lua int TestFunc(int, int, int c = 0);
 
-			export_lua static void StaticFunc();
-			export_lua int m_val;
-			export_lua static int s_val;
+			export2lua static void StaticFunc();
+			export2lua int m_val;
+			export2lua static int s_val;
 
 		public:
-			export_lua struct Iterator
+			export2lua struct Iterator
 			{
-				export_lua Iterator(int, int);
-				export_lua void Move();
+				export2lua Iterator(int, int);
+				export2lua void Move();
 			};
 		};
 	}

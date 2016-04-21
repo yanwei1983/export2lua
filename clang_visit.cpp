@@ -7,12 +7,27 @@
 #include <set>
 #include <vector>
 #include <map>
-
+#include<chrono>
 #include<functional>
 std::string output_filename;
 bool g_bDebug = false;
 bool g_bDefault_Params = true;
 bool g_bJustDisplay = false;
+std::string g_strKeyword = "export_lua";
+
+std::string getClangString(CXString str)
+{
+	const char* pStr = clang_getCString(str);
+	std::string strString;
+	if (pStr)
+	{
+		strString.assign(pStr);
+	}
+	clang_disposeString(str);
+	return strString;
+}
+
+
 struct Visitor_Content
 {
 	Visitor_Content(std::string name = "", Visitor_Content* pParent = nullptr, std::string accessname = "")
@@ -102,7 +117,7 @@ std::map<CXFileUniqueID, export_line_set> g_export_loc;
 
 std::string get_default_params(CXCursor cursor, int params_idx)
 {
-	//std::string varname = clang_getCString(clang_getCursorSpelling(cursor));
+	//std::string varname = getClangString(clang_getCursorSpelling(cursor));
 
 	CXSourceRange range = clang_getCursorExtent(cursor);
 	unsigned numtokens;
@@ -118,7 +133,7 @@ std::string get_default_params(CXCursor cursor, int params_idx)
 		auto token_i = tokens[i];
 		if (clang_getTokenKind(token_i) == CXToken_Punctuation)
 		{
-			std::string p = clang_getCString(clang_getTokenSpelling(TU, token_i));
+			std::string p = getClangString(clang_getTokenSpelling(TU, token_i));
 			if (p == "=")
 			{
 				defaultTokenStart = i + 1;
@@ -134,7 +149,7 @@ std::string get_default_params(CXCursor cursor, int params_idx)
 		for (int i = defaultTokenStart; i < defaultTokenEnd - 1; ++i)
 		{
 			auto token_i = tokens[i];
-			std::string p = clang_getCString(clang_getTokenSpelling(TU, token_i));
+			std::string p = getClangString(clang_getTokenSpelling(TU, token_i));
 			default_val += p;
 		}
 	}
@@ -146,14 +161,14 @@ std::string get_default_params(CXCursor cursor, int params_idx)
 
 void visit_function(CXCursor cursor, Visitor_Content* pContent)
 {
-	std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
-	std::string typestr = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
+	std::string nsname = getClangString(clang_getCursorSpelling(cursor));
+	std::string typestr = getClangString(clang_getTypeSpelling(clang_getCursorType(cursor)));
 	auto& refMap = pContent->m_vecFuncName[nsname];
 	if (refMap.find(typestr) != refMap.end())
 		return;
 	auto& overload_data = refMap[typestr];
 	{
-		overload_data.funcptr_type = clang_getCString(clang_getTypeSpelling(clang_getResultType(clang_getCursorType(cursor))));
+		overload_data.funcptr_type = getClangString(clang_getTypeSpelling(clang_getResultType(clang_getCursorType(cursor))));
 
 		if (pContent->bClass == true)
 		{
@@ -177,7 +192,7 @@ void visit_function(CXCursor cursor, Visitor_Content* pContent)
 		{
 			CXCursor args_cursor = clang_Cursor_getArgument(cursor, i);
 
-			overload_data.funcptr_type += clang_getCString(clang_getTypeSpelling(clang_getCursorType(args_cursor)));
+			overload_data.funcptr_type += getClangString(clang_getTypeSpelling(clang_getCursorType(args_cursor)));
 			if (i < nArgs - 1)
 				overload_data.funcptr_type += ", ";
 
@@ -213,8 +228,8 @@ void visit_function(CXCursor cursor, Visitor_Content* pContent)
 
 void visit_constructor(CXCursor cursor, Visitor_Content* pContent)
 {
-	std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
-	std::string typestr = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
+	std::string nsname = getClangString(clang_getCursorSpelling(cursor));
+	std::string typestr = getClangString(clang_getTypeSpelling(clang_getCursorType(cursor)));
 	auto& refMap = pContent->m_vecConName[nsname];
 	if (refMap.find(typestr) != refMap.end())
 		return;
@@ -226,7 +241,7 @@ void visit_constructor(CXCursor cursor, Visitor_Content* pContent)
 		{
 			CXCursor args_cursor = clang_Cursor_getArgument(cursor, i);
 			overload_data.func_type += ", ";
-			overload_data.func_type += clang_getCString(clang_getTypeSpelling(clang_getCursorType(args_cursor)));
+			overload_data.func_type += getClangString(clang_getTypeSpelling(clang_getCursorType(args_cursor)));
 			if (g_bDefault_Params == true)
 			{
 				std::string default_val = get_default_params(args_cursor, i);
@@ -251,7 +266,7 @@ enum CXChildVisitResult visit_enum(CXCursor cursor,
 	case CXCursor_EnumDecl:
 	case CXCursor_EnumConstantDecl:
 		{
-			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
+			std::string nsname = getClangString(clang_getCursorSpelling(cursor));
 			//clang_getEnumConstantDeclValue(cursor);
 			pContent->m_vecEnumName.insert(nsname);
 		}
@@ -264,7 +279,7 @@ enum CXChildVisitResult visit_enum(CXCursor cursor,
 }
 
 
-CXFileUniqueID g_lastfile = {0,0,0};
+CXFileUniqueID g_lastfile = { 0,0,0 };
 std::set<CXFileUniqueID> g_finish_file;
 bool operator < (const CXFileUniqueID& lft, const CXFileUniqueID& rht)
 {
@@ -340,6 +355,8 @@ static void printCursor(CXCursor cursor)
 	CXFile file;
 	unsigned int off, line, col;
 	CXSourceLocation location = clang_getCursorLocation(cursor);
+	if (clang_Location_isInSystemHeader(location))
+		return;
 	clang_getSpellingLocation(location, &file, &line, &col, &off);
 	CXString fileName = clang_getFileName(file);
 	const char *fileNameCStr = clang_getCString(fileName);
@@ -364,13 +381,13 @@ static enum CXChildVisitResult visit_display(CXCursor cursor, CXCursor parent, C
 	(void)parent;
 	int indent = *(int*)userData;
 	int i;
-	for (i = 0; i<indent; ++i) {
+	for (i = 0; i < indent; ++i) {
 		printf("  ");
 	}
 	printCursor(cursor);
 	CXCursor ref = clang_getCursorReferenced(cursor);
 	if (!clang_isInvalid(clang_getCursorKind(ref)) && !clang_equalCursors(ref, cursor)) {
-		for (i = 0; i<indent; ++i) {
+		for (i = 0; i < indent; ++i) {
 			printf("  ");
 		}
 		printf("-> ");
@@ -384,7 +401,7 @@ static enum CXChildVisitResult visit_display(CXCursor cursor, CXCursor parent, C
 void display_debug_cursor(CXCursor& cursor, CXCursorKind& kind, CXSourceLocation& source_loc)
 {
 
-	std::string kindname = clang_getCString(clang_getCursorKindSpelling(kind));
+	std::string kindname = getClangString(clang_getCursorKindSpelling(kind));
 
 	CXFile file;
 	unsigned line;
@@ -392,10 +409,10 @@ void display_debug_cursor(CXCursor& cursor, CXCursorKind& kind, CXSourceLocation
 	unsigned offset;
 	clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
 
-	std::string filename = clang_getCString(clang_getFileName(file));
-	std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
+	std::string filename = getClangString(clang_getFileName(file));
+	std::string nsname = getClangString(clang_getCursorSpelling(cursor));
 	printf("find:%d %s name:%s in file:%s\n", kind, kindname.c_str(), nsname.c_str(), filename.c_str());
-	
+
 }
 
 bool g_bPreProcessing = true;
@@ -409,10 +426,12 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 
 	auto kind = clang_getCursorKind(cursor);
 
-	if(g_bPreProcessing && clang_isPreprocessing(kind) == 0)
+	if (g_bPreProcessing && clang_isPreprocessing(kind) == 0)
 	{
 		//first out of preprcessing check need export
 		g_bPreProcessing = false;
+		if (g_strKeyword.empty())
+			return CXChildVisit_Continue;
 		if (g_export_loc.empty())
 			return CXChildVisit_Break;
 	}
@@ -422,28 +441,29 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 	{
 	case CXCursor_MacroExpansion:
 		{
-			auto source_loc = clang_getCursorLocation(cursor);
-			if (clang_Location_isInSystemHeader(source_loc))
+			if (g_strKeyword.empty())
 				return CXChildVisit_Continue;
-			if (g_bDebug)
+			std::string nsname = getClangString(clang_getCursorSpelling(cursor));
+			if (nsname == g_strKeyword)
 			{
-				display_debug_cursor(cursor, kind, source_loc);
-			}
-			CXFile file;
-			unsigned line;
-			unsigned column;
-			unsigned offset;
-			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
+				auto source_loc = clang_getCursorLocation(cursor);
+				if (g_bDebug)
+				{
+					display_debug_cursor(cursor, kind, source_loc);
+				}
+				CXFile file;
+				unsigned line;
+				unsigned column;
+				unsigned offset;
+				clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
 
-			CXFileUniqueID id;
-			clang_getFileUniqueID(file, &id);
+				CXFileUniqueID id;
+				clang_getFileUniqueID(file, &id);
 
-			if (NeedSkipByFile(id) == true)
-				return CXChildVisit_Continue;
+				if (NeedSkipByFile(id) == true)
+					return CXChildVisit_Continue;
 
-			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
-			if (nsname == "export_lua")
-			{
+
 				auto& refSet = g_export_loc[id];
 				refSet.insert(line);
 			}
@@ -470,7 +490,7 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 				return CXChildVisit_Continue;
 
 
-			std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
+			std::string nsname = getClangString(clang_getCursorSpelling(cursor));
 
 			//reg class
 			if (pContent->hasChild(nsname) == false)
@@ -503,43 +523,51 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			unsigned column;
 			unsigned offset;
 			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
-			//std::string filename = clang_getCString(clang_getFileName(file));
+			//std::string filename = getClangString(clang_getFileName(file));
 
 			CXFileUniqueID id;
 			clang_getFileUniqueID(file, &id);
 			if (NeedSkipByFile(id) == true)
 				return CXChildVisit_Continue;
-			auto itFind = g_export_loc.find(id);
-			if (itFind != g_export_loc.end())
+			if (g_strKeyword.empty() == false)
 			{
-				auto& refSet = itFind->second;
-				if (refSet.find(line) != refSet.end())
+				auto itFind = g_export_loc.find(id);
+				if (itFind == g_export_loc.end())
 				{
-					std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
-					std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
+					return CXChildVisit_Continue;
+				}
 
-					//reg class
-					if (pContent->hasChild(nsname) == false)
-					{
-						if (g_bDebug)
-						{
-							printf("do:class\n");
-						}
-						Visitor_Content* pNewContent = new Visitor_Content(nsname, pContent, tname);
-						pNewContent->bClass = true;
-						clang_visitChildren(cursor, &TU_visitor, pNewContent);
-						
-					}
-					else
-					{
-						if (g_bDebug)
-						{
-							printf("skip:class\n");
-						}
-					}
-
+				auto& refSet = itFind->second;
+				if (refSet.find(line) == refSet.end())
+				{
+					return CXChildVisit_Continue;
 				}
 			}
+
+			std::string nsname = getClangString(clang_getCursorSpelling(cursor));
+			std::string tname = getClangString(clang_getTypeSpelling(clang_getCursorType(cursor)));
+
+			//reg class
+			if (pContent->hasChild(nsname) == false)
+			{
+				if (g_bDebug)
+				{
+					printf("do:class\n");
+				}
+				Visitor_Content* pNewContent = new Visitor_Content(nsname, pContent, tname);
+				pNewContent->bClass = true;
+				clang_visitChildren(cursor, &TU_visitor, pNewContent);
+
+			}
+			else
+			{
+				if (g_bDebug)
+				{
+					printf("skip:class\n");
+				}
+			}
+
+
 		}
 		break;
 	case CXCursor_CXXMethod:
@@ -556,33 +584,42 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			unsigned column;
 			unsigned offset;
 			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
-			//std::string filename = clang_getCString(clang_getFileName(file));
+			//std::string filename = getClangString(clang_getFileName(file));
 
 			CXFileUniqueID id;
 			clang_getFileUniqueID(file, &id);
 			if (NeedSkipByFile(id) == true)
 				return CXChildVisit_Continue;
 
-			auto itFind = g_export_loc.find(id);
-			if (itFind != g_export_loc.end())
+			if (g_strKeyword.empty() == false)
 			{
-				auto& refSet = itFind->second;
-				if (refSet.find(line) != refSet.end())
-				{
-					if (g_bDebug)
-					{
-						printf("do:CXXMethod\n");
-					}
-					visit_function(cursor, pContent);
-				}
-				else
+				auto itFind = g_export_loc.find(id);
+				if (itFind == g_export_loc.end())
 				{
 					if (g_bDebug)
 					{
 						printf("skip:CXXMethod\n");
 					}
+					return CXChildVisit_Continue;
+				}
+
+				auto& refSet = itFind->second;
+				if (refSet.find(line) == refSet.end())
+				{
+					if (g_bDebug)
+					{
+						printf("skip:CXXMethod\n");
+					}
+					return CXChildVisit_Continue;
 				}
 			}
+			if (g_bDebug)
+			{
+				printf("do:CXXMethod\n");
+			}
+			visit_function(cursor, pContent);
+
+
 		}
 		break;
 	case CXCursor_Constructor:
@@ -599,32 +636,36 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			unsigned column;
 			unsigned offset;
 			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
-			//std::string filename = clang_getCString(clang_getFileName(file));
+			//std::string filename = getClangString(clang_getFileName(file));
 			CXFileUniqueID id;
 			clang_getFileUniqueID(file, &id);
 			if (NeedSkipByFile(id) == true)
 				return CXChildVisit_Continue;
 
-			auto itFind = g_export_loc.find(id);
-			if (itFind != g_export_loc.end())
+			if (g_strKeyword.empty() == false)
 			{
-				auto& refSet = itFind->second;
-				if (refSet.find(line) != refSet.end())
+				auto itFind = g_export_loc.find(id);
+				if (itFind == g_export_loc.end())
 				{
-					if (g_bDebug)
-					{
-						printf("do:Constructor\n");
-					}
-					visit_constructor(cursor, pContent);
+					return CXChildVisit_Continue;
 				}
-				else
+
+				auto& refSet = itFind->second;
+				if (refSet.find(line) == refSet.end())
 				{
 					if (g_bDebug)
 					{
 						printf("skip:Constructor\n");
 					}
+					return CXChildVisit_Continue;
 				}
 			}
+			if (g_bDebug)
+			{
+				printf("do:Constructor\n");
+			}
+			visit_constructor(cursor, pContent);
+
 		}
 		break;
 	case CXCursor_Destructor:
@@ -645,33 +686,37 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			unsigned column;
 			unsigned offset;
 			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
-			//std::string filename = clang_getCString(clang_getFileName(file));
+			//std::string filename = getClangString(clang_getFileName(file));
 			CXFileUniqueID id;
 			clang_getFileUniqueID(file, &id);
 			if (NeedSkipByFile(id) == true)
 				return CXChildVisit_Continue;
 
-			auto itFind = g_export_loc.find(id);
-			if (itFind != g_export_loc.end())
+			if (g_strKeyword.empty() == false)
 			{
-				auto& refSet = itFind->second;
-				if (refSet.find(line) != refSet.end())
+				auto itFind = g_export_loc.find(id);
+				if (itFind == g_export_loc.end())
 				{
-					std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
-					pContent->m_vecValName[nsname] = false;
-					if (g_bDebug)
-					{
-						printf("do:FieldDecl\n");
-					}
+					return CXChildVisit_Continue;
 				}
-				else
+
+				auto& refSet = itFind->second;
+				if (refSet.find(line) == refSet.end())
 				{
 					if (g_bDebug)
 					{
 						printf("skip:FieldDecl\n");
 					}
+					return CXChildVisit_Continue;
 				}
 			}
+			std::string nsname = getClangString(clang_getCursorSpelling(cursor));
+			pContent->m_vecValName[nsname] = false;
+			if (g_bDebug)
+			{
+				printf("do:FieldDecl\n");
+			}
+
 		}
 		break;
 	case CXCursor_CXXBaseSpecifier:
@@ -691,34 +736,38 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			unsigned offset;
 			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
 
-			//std::string filename = clang_getCString(clang_getFileName(file));
+			//std::string filename = getClangString(clang_getFileName(file));
 			CXFileUniqueID id;
 			clang_getFileUniqueID(file, &id);
 			if (NeedSkipByFile(id) == true)
 				return CXChildVisit_Continue;
 
-			auto itFind = g_export_loc.find(id);
-			if (itFind != g_export_loc.end())
+			if (g_strKeyword.empty() == false)
 			{
-				auto& refSet = itFind->second;
-				if (refSet.find(line) != refSet.end())
+				auto itFind = g_export_loc.find(id);
+				if (itFind == g_export_loc.end())
 				{
-					//std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
-					std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
-					pContent->m_vecInhName.insert(tname);
-					if (g_bDebug)
-					{
-						printf("do:CXXBase\n");
-					}
+					return CXChildVisit_Continue;
 				}
-				else
+
+				auto& refSet = itFind->second;
+				if (refSet.find(line) == refSet.end())
 				{
 					if (g_bDebug)
 					{
 						printf("skip:CXXBase\n");
 					}
+					return CXChildVisit_Continue;
 				}
 			}
+			//std::string nsname = getClangString(clang_getCursorSpelling(cursor));
+			std::string tname = getClangString(clang_getTypeSpelling(clang_getCursorType(cursor)));
+			pContent->m_vecInhName.insert(tname);
+			if (g_bDebug)
+			{
+				printf("do:CXXBase\n");
+			}
+
 		}
 		break;
 	case CXCursor_EnumDecl:
@@ -736,33 +785,37 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			unsigned column;
 			unsigned offset;
 			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
-			//std::string filename = clang_getCString(clang_getFileName(file));
+			//std::string filename = getClangString(clang_getFileName(file));
 			CXFileUniqueID id;
 			clang_getFileUniqueID(file, &id);
 			if (NeedSkipByFile(id) == true)
 				return CXChildVisit_Continue;
 
-			auto itFind = g_export_loc.find(id);
-			if (itFind != g_export_loc.end())
+			if (g_strKeyword.empty() == false)
 			{
-				auto& refSet = itFind->second;
-				if (refSet.find(line) != refSet.end())
+				auto itFind = g_export_loc.find(id);
+				if (itFind == g_export_loc.end())
 				{
-					if (g_bDebug)
-					{
-						printf("do:Enum\n");
-					}
-					//reg global val;	
-					clang_visitChildren(cursor, &visit_enum, pContent);
+					return CXChildVisit_Continue;
 				}
-				else
+
+				auto& refSet = itFind->second;
+				if (refSet.find(line) == refSet.end())
 				{
 					if (g_bDebug)
 					{
 						printf("skip:Enum\n");
 					}
+					return CXChildVisit_Continue;
 				}
 			}
+			if (g_bDebug)
+			{
+				printf("do:Enum\n");
+			}
+			//reg global val;	
+			clang_visitChildren(cursor, &visit_enum, pContent);
+
 
 		}
 		break;
@@ -785,30 +838,34 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			if (NeedSkipByFile(id) == true)
 				return CXChildVisit_Continue;
 
-			auto itFind = g_export_loc.find(id);
-			if (itFind != g_export_loc.end())
+			if (g_strKeyword.empty() == false)
 			{
-				auto& refSet = itFind->second;
-				if (refSet.find(line) != refSet.end())
+				auto itFind = g_export_loc.find(id);
+				if (itFind == g_export_loc.end())
 				{
-					if (g_bDebug)
-					{
-						printf("do:VarDecl\n");
-					}
-					//reg global val;
-					std::string nsname = clang_getCString(clang_getCursorSpelling(cursor));
-					//std::string tname = clang_getCString(clang_getTypeSpelling(clang_getCursorType(cursor)));
-					pContent->m_vecValName[nsname] = true;
-
+					return CXChildVisit_Continue;
 				}
-				else
+
+				auto& refSet = itFind->second;
+				if (refSet.find(line) == refSet.end())
 				{
 					if (g_bDebug)
 					{
 						printf("skip:VarDecl\n");
 					}
+					return CXChildVisit_Continue;
 				}
 			}
+			if (g_bDebug)
+			{
+				printf("do:VarDecl\n");
+			}
+			//reg global val;
+			std::string nsname = getClangString(clang_getCursorSpelling(cursor));
+			//std::string tname = getClangString(clang_getTypeSpelling(clang_getCursorType(cursor)));
+			pContent->m_vecValName[nsname] = true;
+
+
 
 		}
 		break;
@@ -832,26 +889,31 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			if (NeedSkipByFile(id) == true)
 				return CXChildVisit_Continue;
 
-			auto itFind = g_export_loc.find(id);
-			if (itFind != g_export_loc.end())
+			if (g_strKeyword.empty() == false)
 			{
-				auto& refSet = itFind->second;
-				if (refSet.find(line) != refSet.end())
+				auto itFind = g_export_loc.find(id);
+				if (itFind == g_export_loc.end())
 				{
-					if (g_bDebug)
-					{
-						printf("do:funciton\n");
-					}
-					visit_function(cursor, pContent);
+					return CXChildVisit_Continue;
 				}
-				else
+
+				auto& refSet = itFind->second;
+				if (refSet.find(line) == refSet.end())
 				{
 					if (g_bDebug)
 					{
 						printf("skip:funciton\n");
 					}
+					return CXChildVisit_Continue;
 				}
 			}
+
+			if (g_bDebug)
+			{
+				printf("do:funciton\n");
+			}
+			visit_function(cursor, pContent);
+
 
 
 		}
@@ -1113,6 +1175,11 @@ void visit_includes(CXFile included_file, CXSourceLocation* inclusion_stack, uns
 
 }
 
+template<typename T, int N>
+inline size_t sizeofArray(T(&_array)[N])
+{
+	return N;
+}
 
 int main(int argc, char** argv)
 {
@@ -1129,7 +1196,7 @@ int main(int argc, char** argv)
 	for (int i = 1; i < argc; i++)
 	{
 		std::string strCmd(argv[i]);
-		if(strCmd[0] == '-') //cmd perfix
+		if (strCmd[0] == '-') //cmd perfix
 		{
 			std::string cmdPerfix = strCmd.substr(0, 2);
 			if (cmdPerfix == "-I")
@@ -1144,53 +1211,65 @@ int main(int argc, char** argv)
 			{
 				std::string cmd = strCmd.substr(2);
 				std::string::size_type pos = cmd.find_first_of('=');
+				std::string cmd_first;
+				std::string cmd_second;
+
 				if (std::string::npos != pos)
 				{
-					std::string cmd_first = cmd.substr(0, pos);
-					std::string cmd_second = cmd.substr(pos+1);
-					if (cmd_first == "include")
+					cmd_first = cmd.substr(0, pos);
+					cmd_second = cmd.substr(pos + 1);
+				}
+				else
+				{
+					cmd_first = cmd;
+				}
+				if (cmd_first == "include")
+				{
+					//read file
+					std::ifstream input_file(fopen(cmd_second.c_str(), "r"));
+					if (input_file.is_open())
 					{
-						//read file
-						std::ifstream input_file(fopen(cmd_second.c_str(), "r"));
-						if (input_file.is_open())
-						{
-							std::string include_dirs;
-							input_file >> include_dirs;
-							Tokenize(include_dirs, szHeaderDirs, ";");
-						}
+						std::string include_dirs;
+						input_file >> include_dirs;
+						Tokenize(include_dirs, szHeaderDirs, ";");
 					}
-					else if (cmd_first == "cpps")
+				}
+				else if (cmd_first == "cpps")
+				{
+					//read file
+					std::ifstream input_file(fopen(cmd_second.c_str(), "r"));
+					if (input_file.is_open())
 					{
-						//read file
-						std::ifstream input_file(fopen(cmd_second.c_str(), "r"));
-						if (input_file.is_open())
-						{
-							std::string cpp_files;
-							input_file >> cpp_files;
-							Tokenize(cpp_files, szCppFiles, ";");
-						}
-
-					}
-					else if (cmd_first == "output")
-					{
-						output_filename = cmd_second;
-					}
-					else if (cmd_first == "justdisplay")
-					{
-						if (cmd_second == "on")
-						{
-							g_bJustDisplay = true;
-						}
-					}
-					else if (cmd_first == "default_params")
-					{
-						if (cmd_second == "off")
-						{
-							g_bDefault_Params = false;
-						}
+						std::string cpp_files;
+						input_file >> cpp_files;
+						Tokenize(cpp_files, szCppFiles, ";");
 					}
 
 				}
+				else if (cmd_first == "output")
+				{
+					output_filename = cmd_second;
+				}
+				else if (cmd_first == "justdisplay")
+				{
+					if (cmd_second == "on")
+					{
+						g_bJustDisplay = true;
+					}
+				}
+				else if (cmd_first == "keyword")
+				{
+					g_strKeyword = cmd_second;
+				}
+				else if (cmd_first == "default_params")
+				{
+					if (cmd_second == "off")
+					{
+						g_bDefault_Params = false;
+					}
+				}
+
+				
 
 
 			}
@@ -1201,15 +1280,24 @@ int main(int argc, char** argv)
 		}
 	}
 
-	const char* ext_cxx_flag = "-xc++";
-	const char* ext_cxx_flag2 = "-fno-spell-checking";
+	const char* ext_cxx_flag[] =
+	{
+		"-xc++",
+		"-std=c++14",
+		"-w",
+		"-fno-spell-checking",
+		"-fsyntax-only",
+		//"-Dexport_lua="
+	};
 
 	for (auto& v : szHeaderDirs)
 	{
 		szParams.push_back(v.c_str());
 	}
-	szParams.push_back(ext_cxx_flag);
-	szParams.push_back(ext_cxx_flag2);
+	for (size_t i = 0; i < sizeofArray(ext_cxx_flag); i++)
+	{
+		szParams.push_back(ext_cxx_flag[i]);
+	}
 
 
 	std::string os;
@@ -1219,14 +1307,15 @@ int main(int argc, char** argv)
 
 	for (auto& v : szCppFiles)
 	{
+		std::chrono::high_resolution_clock clock;
 		if (output_filename.empty() == false)
 		{
 			printf("file:%s process start\n", v.c_str());
 		}
-
+		auto _startTime = clock.now();
 		TU = clang_parseTranslationUnit(Index, v.c_str(), szParams.data(), szParams.size(),
 			0, 0, CXTranslationUnit_DetailedPreprocessingRecord | CXTranslationUnit_SkipFunctionBodies);
-
+		auto _stopTime1 = clock.now();
 
 		CXCursor C = clang_getTranslationUnitCursor(TU);
 		if (g_bJustDisplay)
@@ -1241,14 +1330,17 @@ int main(int argc, char** argv)
 			g_export_loc.clear();
 
 		}
-		
+
 		clang_getInclusions(TU, visit_includes, 0);
 
 		clang_disposeTranslationUnit(TU);
 
+		auto _stopTime2 = clock.now();
 		if (output_filename.empty() == false)
 		{
-			printf("file:%s processed\n", v.c_str());
+			printf("file:%s processed use %lld %lld\n", v.c_str(),
+				std::chrono::duration_cast<std::chrono::milliseconds>(_stopTime1 - _startTime).count(),
+				std::chrono::duration_cast<std::chrono::milliseconds>(_stopTime2 - _stopTime1).count());
 		}
 	}
 
@@ -1269,7 +1361,7 @@ int main(int argc, char** argv)
 	}
 
 
-	if(output_filename.empty())
+	if (output_filename.empty())
 		printf("%s", os.c_str());
 	else
 	{
