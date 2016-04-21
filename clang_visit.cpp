@@ -11,7 +11,25 @@
 #include<functional>
 std::string output_filename;
 bool g_bDebug = false;
-bool g_bDefault_Params = true;
+bool g_bSkip_default_params = false;
+bool g_bSkip_function = false;
+bool g_bSkip_class = false;
+bool g_bSkip_namespace = false;
+bool g_bSkip_var = false;
+bool g_bSkip_field = false;
+bool g_bSkip_enum = false;
+bool g_bSkip_method = false;
+bool g_bSkip_method_static = false;
+bool g_bSkip_con = false;
+bool g_bSkip_overload = true;
+
+
+
+
+
+
+
+
 bool g_bJustDisplay = false;
 std::string g_strKeyword = "export_lua";
 unsigned g_extTUFlag = 0;
@@ -185,6 +203,9 @@ void visit_function(CXCursor cursor, Visitor_Content* pContent)
 	std::string nsname = getClangString(clang_getCursorSpelling(cursor));
 	std::string typestr = getClangString(clang_getTypeSpelling(clang_getCursorType(cursor)));
 	auto& refMap = pContent->m_vecFuncName[nsname];
+	if (g_bSkip_overload && refMap.empty() == false)
+		return;
+		
 	if (refMap.find(typestr) != refMap.end())
 		return;
 	auto& overload_data = refMap[typestr];
@@ -217,7 +238,7 @@ void visit_function(CXCursor cursor, Visitor_Content* pContent)
 			if (i < nArgs - 1)
 				overload_data.funcptr_type += ", ";
 
-			if (g_bDefault_Params == true)
+			if (g_bSkip_default_params == false)
 			{
 				std::string default_val = get_default_params(args_cursor, i);
 				if (default_val.empty() == false)
@@ -252,6 +273,8 @@ void visit_constructor(CXCursor cursor, Visitor_Content* pContent)
 	std::string nsname = getClangString(clang_getCursorSpelling(cursor));
 	std::string typestr = getClangString(clang_getTypeSpelling(clang_getCursorType(cursor)));
 	auto& refMap = pContent->m_vecConName[nsname];
+	if (g_bSkip_overload && refMap.empty() == false)
+		return;
 	if (refMap.find(typestr) != refMap.end())
 		return;
 	auto& overload_data = refMap[typestr];
@@ -263,7 +286,7 @@ void visit_constructor(CXCursor cursor, Visitor_Content* pContent)
 			CXCursor args_cursor = clang_Cursor_getArgument(cursor, i);
 			overload_data.func_type += ", ";
 			overload_data.func_type += getClangString(clang_getTypeSpelling(clang_getCursorType(args_cursor)));
-			if (g_bDefault_Params == true)
+			if (g_bSkip_default_params == false)
 			{
 				std::string default_val = get_default_params(args_cursor, i);
 				if (default_val.empty() == false)
@@ -478,6 +501,8 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 		break;
 	case CXCursor_Namespace:
 		{
+			if(g_bSkip_namespace)
+				return CXChildVisit_Continue;
 			auto source_loc = clang_getCursorLocation(cursor);
 			if (clang_Location_isInSystemHeader(source_loc))
 				return CXChildVisit_Continue;
@@ -518,6 +543,8 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 	case CXCursor_StructDecl:
 	case CXCursor_ClassDecl:
 		{
+			if (g_bSkip_class)
+				return CXChildVisit_Continue;
 			auto source_loc = clang_getCursorLocation(cursor);
 			if (clang_Location_isInSystemHeader(source_loc))
 				return CXChildVisit_Continue;
@@ -590,6 +617,11 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 		break;
 	case CXCursor_CXXMethod:
 		{
+			if(g_bSkip_method)
+				return CXChildVisit_Continue;
+			if(g_bSkip_method_static && clang_CXXMethod_isStatic(cursor))
+				return CXChildVisit_Continue;
+
 			auto source_loc = clang_getCursorLocation(cursor);
 			if (clang_Location_isInSystemHeader(source_loc))
 				return CXChildVisit_Continue;
@@ -652,6 +684,8 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 		break;
 	case CXCursor_Constructor:
 		{
+			if (g_bSkip_con)
+				return CXChildVisit_Continue;
 			auto source_loc = clang_getCursorLocation(cursor);
 			if (clang_Location_isInSystemHeader(source_loc))
 				return CXChildVisit_Continue;
@@ -716,6 +750,8 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 		break;
 	case CXCursor_FieldDecl:
 		{
+			if (g_bSkip_field)
+				return CXChildVisit_Continue;
 			auto source_loc = clang_getCursorLocation(cursor);
 			if (clang_Location_isInSystemHeader(source_loc))
 				return CXChildVisit_Continue;
@@ -773,6 +809,9 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 		break;
 	case CXCursor_CXXBaseSpecifier:
 		{
+			if (g_bSkip_class)
+				return CXChildVisit_Continue;
+
 			auto source_loc = clang_getCursorLocation(cursor);
 			if (clang_Location_isInSystemHeader(source_loc))
 				return CXChildVisit_Continue;
@@ -835,6 +874,9 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 	case CXCursor_EnumDecl:
 	case CXCursor_EnumConstantDecl:
 		{
+			if (g_bSkip_enum)
+				return CXChildVisit_Continue;
+
 			auto source_loc = clang_getCursorLocation(cursor);
 			if (clang_Location_isInSystemHeader(source_loc))
 				return CXChildVisit_Continue;
@@ -898,6 +940,9 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 		break;
 	case CXCursor_VarDecl:
 		{
+			if (g_bSkip_var)
+				return CXChildVisit_Continue;
+
 			auto source_loc = clang_getCursorLocation(cursor);
 			if (clang_Location_isInSystemHeader(source_loc))
 				return CXChildVisit_Continue;
@@ -958,6 +1003,9 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 		break;
 	case CXCursor_FunctionDecl:
 		{
+			if (g_bSkip_function)
+				return CXChildVisit_Continue;
+
 			auto source_loc = clang_getCursorLocation(cursor);
 			if (clang_Location_isInSystemHeader(source_loc))
 				return CXChildVisit_Continue;
@@ -1347,12 +1395,57 @@ int main(int argc, char** argv)
 				{
 					g_strKeyword = cmd_second;
 				}
-				else if (cmd_first == "default_params")
+				else if (cmd_first == "old_style")
 				{
-					if (cmd_second == "off")
-					{
-						g_bDefault_Params = false;
-					}
+					g_bSkip_default_params = true;
+					g_bSkip_overload = true;
+					g_bSkip_var = true;
+					g_bSkip_field = true;
+					g_bSkip_method_static = true;
+				}
+				else if (cmd_first == "skip_default_params")
+				{
+					g_bSkip_default_params = true;
+				}
+				else if (cmd_first == "skip_function")
+				{
+					g_bSkip_function = true;
+				}
+				else if (cmd_first == "skip_class")
+				{
+					g_bSkip_class = true;
+				}
+				else if (cmd_first == "skip_namespace")
+				{
+					g_bSkip_namespace = true;
+				}
+				else if (cmd_first == "skip_var")
+				{
+					g_bSkip_var = true;
+				}
+				else if (cmd_first == "skip_field")
+				{
+					g_bSkip_field = true;
+				}
+				else if (cmd_first == "skip_enum")
+				{
+					g_bSkip_enum = true;
+				}
+				else if (cmd_first == "skip_method")
+				{
+					g_bSkip_method = true;
+				}
+				else if (cmd_first == "skip_method_static")
+				{
+					g_bSkip_method_static = true;
+				}
+				else if (cmd_first == "skip_con")
+				{
+					g_bSkip_con = true;
+				}
+				else if (cmd_first == "skip_overload")
+				{
+					g_bSkip_overload = true;
 				}
 				else if (cmd_first == "ext_tuflag")
 				{
