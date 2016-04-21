@@ -20,8 +20,14 @@ usage： export2lua [cppfile] [-Iheaderdir] ... [-Iheaderdir]
 [--keyword=export_lua]
 [--skip_default_params] did not output default_params  
 [--skip_function]  did not output function  
-[--skip_function]  did not output function  
-[--skip_function]  did not output function  [--skip_function]  did not output function  [--skip_function]  did not output function  [--skip_function]  did not output function  [--skip_function]  did not output function  
+[--skip_class]  did not output function  
+[--skip_namespace]  did not output function 
+[--skip_var]  did not output function 
+[--skip_field]  did not output function 
+[--skip_enum]  did not output function 
+[--skip_method]  did not output function  
+[--skip_method]  did not output function  
+[--skip_method]  did not output function  [--skip_method]  did not output function  
 [-v]   will output DEBUG info  
 ***
 
