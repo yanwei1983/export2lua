@@ -1359,11 +1359,35 @@ inline size_t sizeofArray(T(&_array)[N])
 	return N;
 }
 
+
+void print_help()
+{
+	printf(
+R"(export2lua[cppfile][-Iheaderdir] ...[-Iheaderdir]
+[--cpps=filename]		use ';' to separate source files from file like a.cpp;b.cpp;test/c.cpp;
+[--include=filename]		use ';' to separate include dirs from file like -Itest;-I../game;
+[--output=filename]		output file name
+[--exportclass=filename]	use ';' to separate which class need export from file
+[--keyword=export_lua]		keyword default is export_lua, if set to empty will output all decl
+[--skip_default_params]		not output default_params
+[--skip_function]		not output function
+[--skip_class]			not output class
+[--skip_namespace]		not output namespace
+[--skip_var]			not output var
+[--skip_field]			not output class field
+[--skip_enum]			not output enum
+[--skip_method]			not output method
+[--skip_method_static]		not static method
+[--skip_con]			not output Constructor
+[--skip_overload]		not output overload function
+[-v]				will output DEBUG info)");
+
+}
 int main(int argc, char** argv)
 {
 	if (argc < 2)
 	{
-		std::cout << "need source file name" << std::endl;
+		print_help();
 		return 0;
 	}
 
