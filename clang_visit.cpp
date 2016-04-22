@@ -28,6 +28,7 @@ bool g_bSkip_overload = true;
 
 
 
+std::set<std::string> g_strExportNamespaceName;
 
 std::set<std::string> g_strExportClassName;
 bool g_bJustDisplay = false;
@@ -523,7 +524,9 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 
 
 			std::string nsname = getClangString(clang_getCursorSpelling(cursor));
-
+			if (g_strExportNamespaceName.empty() == false &&
+				g_strExportNamespaceName.find(nsname) == g_strExportNamespaceName.end())
+				return CXChildVisit_Continue;
 			//reg class
 			if (pContent->hasChild(nsname) == false)
 			{
@@ -1063,535 +1066,46 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 	return CXChildVisit_Continue;
 }
 
-
-enum CXChildVisitResult TU_visitor_byclassname(CXCursor cursor,
-	CXCursor parent,
-	CXClientData client_data)
-{
-	Visitor_Content* pContent = (Visitor_Content*)client_data;
-
-
-
-	auto kind = clang_getCursorKind(cursor);
-
-	switch (kind)
-	{
-	case CXCursor_Namespace:
-		{
-			if (g_bSkip_namespace)
-				return CXChildVisit_Continue;
-			auto source_loc = clang_getCursorLocation(cursor);
-			if (clang_Location_isInSystemHeader(source_loc))
-				return CXChildVisit_Continue;
-			if (g_bDebug)
-			{
-				display_debug_cursor(cursor, kind, source_loc);
-			}
-
-			CXFile file;
-			unsigned line;
-			unsigned column;
-			unsigned offset;
-			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
-			CXFileUniqueID id;
-			clang_getFileUniqueID(file, &id);
-			if (NeedSkipByFile(id) == true)
-				return CXChildVisit_Continue;
-
-
-			std::string nsname = getClangString(clang_getCursorSpelling(cursor));
-
-			//reg class
-			if (pContent->hasChild(nsname) == false)
-			{
-				Visitor_Content* pNewContent = new Visitor_Content(nsname, pContent, nsname);
-				pNewContent->bNameSpace = true;
-				clang_visitChildren(cursor, &TU_visitor_byclassname, pNewContent);
-			}
-			else
-			{
-				clang_visitChildren(cursor, &TU_visitor_byclassname, pContent->m_setChild[nsname]);
-			}
-
-		}
-		break;
-	case CXCursor_UnionDecl:
-		break;
-	case CXCursor_StructDecl:
-	case CXCursor_ClassDecl:
-		{
-			if (g_bSkip_class)
-				return CXChildVisit_Continue;
-			auto source_loc = clang_getCursorLocation(cursor);
-			if (clang_Location_isInSystemHeader(source_loc))
-				return CXChildVisit_Continue;
-			if (g_bDebug)
-			{
-				display_debug_cursor(cursor, kind, source_loc);
-			}
-			CX_CXXAccessSpecifier access_kind = clang_getCXXAccessSpecifier(cursor);
-			if (access_kind != CX_CXXPublic && access_kind != CX_CXXInvalidAccessSpecifier)
-			{
-				if (g_bDebug)
-				{
-					printf("skip:ClassDecl no public\n");
-				}
-				return CXChildVisit_Continue;
-			}
-
-			CXFile file;
-			unsigned line;
-			unsigned column;
-			unsigned offset;
-			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
-			//std::string filename = getClangString(clang_getFileName(file));
-
-
-			CXFileUniqueID id;
-			clang_getFileUniqueID(file, &id);
-			if (NeedSkipByFile(id) == true)
-				return CXChildVisit_Continue;
-			if (g_strKeyword.empty() == false)
-			{
-				auto itFind = g_export_loc.find(id);
-				if (itFind == g_export_loc.end())
-				{
-					return CXChildVisit_Continue;
-				}
-
-				auto& refSet = itFind->second;
-				if (refSet.find(line) == refSet.end())
-				{
-					return CXChildVisit_Continue;
-				}
-			}
-
-			std::string nsname = getClangString(clang_getCursorSpelling(cursor));
-			if(g_strExportClassName.find(nsname) == g_strExportClassName.end())
-				return CXChildVisit_Continue;
-
-			std::string tname = getClangString(clang_getTypeSpelling(clang_getCursorType(cursor)));
-
-			//reg class
-			if (pContent->hasChild(nsname) == false)
-			{
-				if (g_bDebug)
-				{
-					printf("do:class\n");
-				}
-				Visitor_Content* pNewContent = new Visitor_Content(nsname, pContent, tname);
-				pNewContent->bClass = true;
-				clang_visitChildren(cursor, &TU_visitor, pNewContent);
-
-			}
-			else
-			{
-				if (g_bDebug)
-				{
-					printf("skip:class\n");
-				}
-			}
-
-
-		}
-		break;
-	case CXCursor_CXXMethod:
-		{
-			if (g_bSkip_method)
-				return CXChildVisit_Continue;
-			if (g_bSkip_method_static && clang_CXXMethod_isStatic(cursor))
-				return CXChildVisit_Continue;
-
-			auto source_loc = clang_getCursorLocation(cursor);
-			if (clang_Location_isInSystemHeader(source_loc))
-				return CXChildVisit_Continue;
-			if (g_bDebug)
-			{
-				display_debug_cursor(cursor, kind, source_loc);
-			}
-			CX_CXXAccessSpecifier access_kind = clang_getCXXAccessSpecifier(cursor);
-			if (access_kind != CX_CXXPublic && access_kind != CX_CXXInvalidAccessSpecifier)
-			{
-				if (g_bDebug)
-				{
-					printf("skip:CXXMethod no public\n");
-				}
-				return CXChildVisit_Continue;
-			}
-
-			CXFile file;
-			unsigned line;
-			unsigned column;
-			unsigned offset;
-			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
-			//std::string filename = getClangString(clang_getFileName(file));
-
-			CXFileUniqueID id;
-			clang_getFileUniqueID(file, &id);
-			if (NeedSkipByFile(id) == true)
-				return CXChildVisit_Continue;
-
-			if (g_strKeyword.empty() == false)
-			{
-				auto itFind = g_export_loc.find(id);
-				if (itFind == g_export_loc.end())
-				{
-					if (g_bDebug)
-					{
-						printf("skip:CXXMethod\n");
-					}
-					return CXChildVisit_Continue;
-				}
-
-				auto& refSet = itFind->second;
-				if (refSet.find(line) == refSet.end())
-				{
-					if (g_bDebug)
-					{
-						printf("skip:CXXMethod\n");
-					}
-					return CXChildVisit_Continue;
-				}
-			}
-			if (g_bDebug)
-			{
-				printf("do:CXXMethod\n");
-			}
-			visit_function(cursor, pContent);
-
-
-		}
-		break;
-	case CXCursor_Constructor:
-		{
-			if (g_bSkip_con)
-				return CXChildVisit_Continue;
-			auto source_loc = clang_getCursorLocation(cursor);
-			if (clang_Location_isInSystemHeader(source_loc))
-				return CXChildVisit_Continue;
-			if (g_bDebug)
-			{
-				display_debug_cursor(cursor, kind, source_loc);
-			}
-
-			CX_CXXAccessSpecifier access_kind = clang_getCXXAccessSpecifier(cursor);
-			if (access_kind != CX_CXXPublic && access_kind != CX_CXXInvalidAccessSpecifier)
-			{
-				if (g_bDebug)
-				{
-					printf("skip:Constructor no public\n");
-				}
-				return CXChildVisit_Continue;
-			}
-
-			CXFile file;
-			unsigned line;
-			unsigned column;
-			unsigned offset;
-			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
-			//std::string filename = getClangString(clang_getFileName(file));
-			CXFileUniqueID id;
-			clang_getFileUniqueID(file, &id);
-			if (NeedSkipByFile(id) == true)
-				return CXChildVisit_Continue;
-
-
-			if (g_strKeyword.empty() == false)
-			{
-				auto itFind = g_export_loc.find(id);
-				if (itFind == g_export_loc.end())
-				{
-					return CXChildVisit_Continue;
-				}
-
-				auto& refSet = itFind->second;
-				if (refSet.find(line) == refSet.end())
-				{
-					if (g_bDebug)
-					{
-						printf("skip:Constructor\n");
-					}
-					return CXChildVisit_Continue;
-				}
-			}
-
-
-			if (g_bDebug)
-			{
-				printf("do:Constructor\n");
-			}
-			visit_constructor(cursor, pContent);
-
-		}
-		break;
-	case CXCursor_Destructor:
-		{
-		}
-		break;
-	case CXCursor_FieldDecl:
-		{
-			if (g_bSkip_field)
-				return CXChildVisit_Continue;
-			auto source_loc = clang_getCursorLocation(cursor);
-			if (clang_Location_isInSystemHeader(source_loc))
-				return CXChildVisit_Continue;
-			if (g_bDebug)
-			{
-				display_debug_cursor(cursor, kind, source_loc);
-			}
-			CX_CXXAccessSpecifier access_kind = clang_getCXXAccessSpecifier(cursor);
-			if (access_kind != CX_CXXPublic && access_kind != CX_CXXInvalidAccessSpecifier)
-			{
-				if (g_bDebug)
-				{
-					printf("skip:FieldDecl no public\n");
-				}
-				return CXChildVisit_Continue;
-			}
-
-			CXFile file;
-			unsigned line;
-			unsigned column;
-			unsigned offset;
-			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
-			//std::string filename = getClangString(clang_getFileName(file));
-			CXFileUniqueID id;
-			clang_getFileUniqueID(file, &id);
-			if (NeedSkipByFile(id) == true)
-				return CXChildVisit_Continue;
-
-			if (g_strKeyword.empty() == false)
-			{
-				auto itFind = g_export_loc.find(id);
-				if (itFind == g_export_loc.end())
-				{
-					return CXChildVisit_Continue;
-				}
-
-				auto& refSet = itFind->second;
-				if (refSet.find(line) == refSet.end())
-				{
-					if (g_bDebug)
-					{
-						printf("skip:FieldDecl\n");
-					}
-					return CXChildVisit_Continue;
-				}
-			}
-			std::string nsname = getClangString(clang_getCursorSpelling(cursor));
-			pContent->m_vecValName[nsname] = false;
-			if (g_bDebug)
-			{
-				printf("do:FieldDecl\n");
-			}
-
-		}
-		break;
-	case CXCursor_CXXBaseSpecifier:
-		{
-			if (g_bSkip_class)
-				return CXChildVisit_Continue;
-
-			auto source_loc = clang_getCursorLocation(cursor);
-			if (clang_Location_isInSystemHeader(source_loc))
-				return CXChildVisit_Continue;
-
-			CX_CXXAccessSpecifier access_kind = clang_getCXXAccessSpecifier(cursor);
-			if (access_kind != CX_CXXPublic && access_kind != CX_CXXInvalidAccessSpecifier)
-			{
-				if (g_bDebug)
-				{
-					printf("skip:CXXBaseSpecifier no public\n");
-				}
-				return CXChildVisit_Continue;
-			}
-
-			if (g_bDebug)
-			{
-				display_debug_cursor(cursor, kind, source_loc);
-			}
-			//reg inh
-			CXFile file;
-			unsigned line;
-			unsigned column;
-			unsigned offset;
-			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
-
-			//std::string filename = getClangString(clang_getFileName(file));
-			CXFileUniqueID id;
-			clang_getFileUniqueID(file, &id);
-			if (NeedSkipByFile(id) == true)
-				return CXChildVisit_Continue;
-
-			if (g_strKeyword.empty() == false)
-			{
-				auto itFind = g_export_loc.find(id);
-				if (itFind == g_export_loc.end())
-				{
-					return CXChildVisit_Continue;
-				}
-
-				auto& refSet = itFind->second;
-				if (refSet.find(line) == refSet.end())
-				{
-					if (g_bDebug)
-					{
-						printf("skip:CXXBase\n");
-					}
-					return CXChildVisit_Continue;
-				}
-			}
-			//std::string nsname = getClangString(clang_getCursorSpelling(cursor));
-			std::string tname = getClangString(clang_getTypeSpelling(clang_getCursorType(cursor)));
-			pContent->m_vecInhName.insert(tname);
-			if (g_bDebug)
-			{
-				printf("do:CXXBase\n");
-			}
-
-		}
-		break;
-	case CXCursor_EnumDecl:
-	case CXCursor_EnumConstantDecl:
-		{
-			if (g_bSkip_enum)
-				return CXChildVisit_Continue;
-
-			auto source_loc = clang_getCursorLocation(cursor);
-			if (clang_Location_isInSystemHeader(source_loc))
-				return CXChildVisit_Continue;
-			if (g_bDebug)
-			{
-				display_debug_cursor(cursor, kind, source_loc);
-			}
-			CX_CXXAccessSpecifier access_kind = clang_getCXXAccessSpecifier(cursor);
-			if (access_kind != CX_CXXPublic)
-			{
-				if (g_bDebug)
-				{
-					printf("skip:EnumDecl no public\n");
-				}
-				return CXChildVisit_Continue;
-			}
-
-			CXFile file;
-			unsigned line;
-			unsigned column;
-			unsigned offset;
-			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
-			//std::string filename = getClangString(clang_getFileName(file));
-			CXFileUniqueID id;
-			clang_getFileUniqueID(file, &id);
-			if (NeedSkipByFile(id) == true)
-				return CXChildVisit_Continue;
-
-			if (g_strKeyword.empty() == false)
-			{
-				auto itFind = g_export_loc.find(id);
-				if (itFind == g_export_loc.end())
-				{
-					return CXChildVisit_Continue;
-				}
-
-				auto& refSet = itFind->second;
-				if (refSet.find(line) == refSet.end())
-				{
-					if (g_bDebug)
-					{
-						printf("skip:Enum\n");
-					}
-					return CXChildVisit_Continue;
-				}
-			}
-			else
-			{
-
-			}
-
-			if (g_bDebug)
-			{
-				printf("do:Enum\n");
-			}
-			//reg global val;	
-			clang_visitChildren(cursor, &visit_enum, pContent);
-
-
-		}
-		break;
-	case CXCursor_VarDecl:
-		{
-			if (g_bSkip_var)
-				return CXChildVisit_Continue;
-
-			auto source_loc = clang_getCursorLocation(cursor);
-			if (clang_Location_isInSystemHeader(source_loc))
-				return CXChildVisit_Continue;
-			if (g_bDebug)
-			{
-				display_debug_cursor(cursor, kind, source_loc);
-			}
-			CX_CXXAccessSpecifier access_kind = clang_getCXXAccessSpecifier(cursor);
-			if (access_kind != CX_CXXPublic)
-			{
-				if (g_bDebug)
-				{
-					printf("skip:VarDecl no public\n");
-				}
-				return CXChildVisit_Continue;
-			}
-
-			CXFile file;
-			unsigned line;
-			unsigned column;
-			unsigned offset;
-			clang_getExpansionLocation(source_loc, &file, &line, &column, &offset);
-			CXFileUniqueID id;
-			clang_getFileUniqueID(file, &id);
-			if (NeedSkipByFile(id) == true)
-				return CXChildVisit_Continue;
-
-			if (g_strKeyword.empty() == false)
-			{
-				auto itFind = g_export_loc.find(id);
-				if (itFind == g_export_loc.end())
-				{
-					return CXChildVisit_Continue;
-				}
-
-				auto& refSet = itFind->second;
-				if (refSet.find(line) == refSet.end())
-				{
-					if (g_bDebug)
-					{
-						printf("skip:VarDecl\n");
-					}
-					return CXChildVisit_Continue;
-				}
-			}
-			if (g_bDebug)
-			{
-				printf("do:VarDecl\n");
-			}
-			//reg global val;
-			std::string nsname = getClangString(clang_getCursorSpelling(cursor));
-			//std::string tname = getClangString(clang_getTypeSpelling(clang_getCursorType(cursor)));
-			pContent->m_vecValName[nsname] = true;
-
-
-
-		}
-		break;
-	default:
-		{
-		}
-		break;
-	}
-	return CXChildVisit_Continue;
-}
-
-
 void visit_contnet(Visitor_Content* pContent, std::string& os, std::string& os_second)
 {
+	
+	if (pContent->bClass)
+	{
+		//should export this?
+		if (g_strExportClassName.empty() == false && g_strExportClassName.find(pContent->m_name) == g_strExportClassName.end())
+			return;
+	}
+	else if (pContent->bNameSpace)
+	{
+		//should export this
+		if (g_strExportNamespaceName.empty() == false && g_strExportNamespaceName.find(pContent->m_name) == g_strExportNamespaceName.end())
+			return;
+	}
+	else if (pContent->m_pParent == NULL)
+	{
+		//root
+		if (g_strExportClassName.empty() == false ||
+			g_strExportNamespaceName.empty() == false)
+		{
+			for (auto& v : pContent->m_setChild)
+			{
+				if (g_strExportNamespaceName.empty() == false)
+				{
+					//only visit namespace
+					if (v.second->bNameSpace)
+						visit_contnet(v.second, os, os_second);
+				}
+				else
+				{
+					visit_contnet(v.second, os, os_second);
+				}
+				
+			}
+			return; //just visit child,skip global scope
+		}
+	}
+
+
 	char szBuf[4096];
 	//class add
 	if (pContent->bClass)
@@ -1599,6 +1113,7 @@ void visit_contnet(Visitor_Content* pContent, std::string& os, std::string& os_s
 		sprintf_s(szBuf, 4096, "lua_tinker::class_add<%s>(L, \"%s\",true);\n", pContent->getAccessName().c_str(), pContent->getWholeName().c_str());	//class_add
 		os += szBuf;
 	}
+
 	for (const auto& v : pContent->m_vecInhName)
 	{
 
@@ -1926,6 +1441,23 @@ int main(int argc, char** argv)
 					}
 
 				}
+				else if (cmd_first == "exportnamespace")
+				{
+					//read file
+					std::ifstream input_file(fopen(cmd_second.c_str(), "r"));
+					if (input_file.is_open())
+					{
+						std::string exportnamespace;
+						input_file >> exportnamespace;
+						std::vector<std::string> vecExportNamespaceName;
+						Tokenize(exportnamespace, vecExportNamespaceName, ";");
+						for (auto& v : vecExportNamespaceName)
+						{
+							g_strExportNamespaceName.insert(v);
+						}
+					}
+
+				}
 				else if (cmd_first == "output")
 				{
 					output_filename = cmd_second;
@@ -2052,12 +1584,6 @@ int main(int argc, char** argv)
 		{
 			int indent = 0;
 			clang_visitChildren(C, visit_display, &indent);
-		}
-		else if (g_strExportClassName.empty() == false)
-		{
-			g_bPreProcessing = true;
-			clang_visitChildren(C, TU_visitor_byclassname, &content);
-			g_export_loc.clear();
 		}
 		else
 		{
