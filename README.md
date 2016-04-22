@@ -12,24 +12,27 @@
 
 ***
 
-usage： export2lua [cppfile] [-Iheaderdir] ... [-Iheaderdir]  
-[--cpps=cpps_list_file]  use ';' to separate source files  from file like a.cpp;b.cpp;test/c.cpp;   
-[--include=header_dirs_file]  use ';' to separate include dirs from file like -Itest;-I../game;   
-[--output=output_file] output file name  
-[--exportclass=export_class_name_file]   use ';' to separate which class need export from file   
-[--keyword=export_lua] keyword default is export_lua, if set to empty will output all decl  
-[--skip_default_params] did not output default_params    
-[--skip_function]  did not output function    
-[--skip_class]  did not output class    
-[--skip_namespace]  did not output namespace   
-[--skip_var]  did not output var   
-[--skip_field]  did not output class field    
-[--skip_enum]  did not output enum   
-[--skip_method]  did not output method   
-[--skip_method_static]  did not static method   
-[--skip_con]  did not output Constructor    
-[--skip_overload]  did not output overload function    
-[-v] will output DEBUG info    
+usage： 
+export2lua[cppfile][-Iheaderdir] ...[-Iheaderdir]
+* [--cpps=filename]		use ';' to separate source files from file like a.cpp;b.cpp;test/c.cpp;
+* [--include=filename]		use ';' to separate include dirs from file like -Itest;-I../game;
+* [--output=filename]		output file name
+* [--exportclass=filename]	use ';' to separate which class need export from file
+* [--keyword=export_lua]		keyword default is export_lua, if set to empty will output all decl
+* [--skip_default_params]		not output default_params
+* [--skip_function]		not output function
+* [--skip_class]			not output class
+* [--skip_namespace]		not output namespace
+* [--skip_var]			not output var
+* [--skip_field]			not output class field
+* [--skip_enum]			not output enum
+* [--skip_method]			not output method
+* [--skip_method_static]		not static method
+* [--skip_con]			not output Constructor
+* [--skip_overload]		not output overload function
+* [-v]				will output DEBUG info)   
+* 
+
 ***
 
 
