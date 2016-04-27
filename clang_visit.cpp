@@ -69,12 +69,6 @@ struct Visitor_Content
 		m_setChild.clear();
 	}
 
-	std::string getWholeName()
-	{
-		if (m_pParent == nullptr)
-			return m_name;
-		return m_pParent->getWholeName() + m_name;
-	}
 	std::string getAccessName()
 	{
 		return m_accessname;
@@ -86,12 +80,7 @@ struct Visitor_Content
 		return m_accessname + "::";
 	}
 
-	std::string getWholePrifix()
-	{
-		if (m_pParent == nullptr)
-			return "";
-		return m_pParent->getWholeName();
-	}
+
 
 	bool hasChild(const std::string& name)
 	{
@@ -519,13 +508,14 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 
 
 			std::string nsname = getClangString(clang_getCursorSpelling(cursor));
+
 			if (g_strExportNamespaceName.empty() == false &&
 				g_strExportNamespaceName.find(nsname) == g_strExportNamespaceName.end())
 				return CXChildVisit_Continue;
 			//reg class
 			if (pContent->hasChild(nsname) == false)
 			{
-				Visitor_Content* pNewContent = new Visitor_Content(nsname, pContent, nsname);
+				Visitor_Content* pNewContent = new Visitor_Content(nsname, pContent, pContent->getAccessPrifix() + nsname);
 				pNewContent->bNameSpace = true;
 				clang_visitChildren(cursor, &TU_visitor, pNewContent);
 			}
@@ -932,8 +922,43 @@ enum CXChildVisitResult TU_visitor(CXCursor cursor,
 			{
 				printf("do:Enum\n");
 			}
+
+
+			CXSourceRange range = clang_getCursorExtent(cursor);
+			unsigned numtokens;
+			CXToken *tokens;
+			clang_tokenize(TU, range, &tokens, &numtokens);
+
+			bool bScopedEnum = false;
+			// This tokensequence needs some cleanup. 
+			for (unsigned int i = 0; i < numtokens; ++i)
+			{
+				auto token_i = tokens[i];
+				if (clang_getTokenKind(token_i) == CXToken_Keyword)
+				{
+					std::string p = getClangString(clang_getTokenSpelling(TU, token_i));
+					if (p == "class")
+					{
+						bScopedEnum = true;
+						break;
+					}
+				}
+			}
+			clang_disposeTokens(TU, tokens, numtokens);
+
 			//reg global val;	
-			clang_visitChildren(cursor, &visit_enum, pContent);
+			if (bScopedEnum)
+			{
+				std::string nsname = getClangString(clang_getCursorSpelling(cursor));
+
+				Visitor_Content* pNewContent = new Visitor_Content(nsname, pContent, pContent->getAccessPrifix() + nsname);
+				pNewContent->bNameSpace = true;
+				clang_visitChildren(cursor, &visit_enum, pNewContent);
+			}
+			else
+			{
+				clang_visitChildren(cursor, &visit_enum, pContent);
+			}
 
 
 		}
@@ -1248,7 +1273,7 @@ void visit_contnet(Visitor_Content* pContent, std::string& os, std::string& os_s
 
 		}
 	}
-	else
+	else if (pContent->m_pParent == NULL)
 	{
 		for (const auto& v : pContent->m_vecFuncName)
 		{
@@ -1385,12 +1410,12 @@ void visit_contnet(Visitor_Content* pContent, std::string& os, std::string& os_s
 			os += szBuf;
 		}
 	}
-	else
+	else if (pContent->m_pParent == NULL)
 	{
 
 		for (const auto& v : pContent->m_vecValName)
 		{
-			sprintf_s(szBuf, 4096, "lua_tinker::set(L,\"%s\",%s);\n", (pContent->getWholeName() + v.first).c_str(), (pContent->getAccessPrifix() + v.first).c_str());
+			sprintf_s(szBuf, 4096, "lua_tinker::set(L,\"%s\",%s);\n", v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str());
 			os += szBuf;
 		}
 	}
@@ -1411,11 +1436,11 @@ void visit_contnet(Visitor_Content* pContent, std::string& os, std::string& os_s
 			os += szBuf;
 		}
 	}
-	else
+	else if (pContent->m_pParent == NULL)
 	{
 		for (const auto& v : pContent->m_vecEnumName)
 		{
-			sprintf_s(szBuf, 4096, "lua_tinker::set(L, \"%s\",%s);\n", (pContent->getWholeName() + v).c_str(), (pContent->getAccessPrifix() + v).c_str());
+			sprintf_s(szBuf, 4096, "lua_tinker::set(L, \"%s\",%s);\n", v.c_str(), (pContent->getAccessPrifix() + v).c_str());
 			os += szBuf;
 		}
 	}
