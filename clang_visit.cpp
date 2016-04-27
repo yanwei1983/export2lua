@@ -10,6 +10,8 @@
 #include <set>
 #include<chrono>
 #include<functional>
+#include<unordered_map>
+#include<map>
 std::string output_filename;
 bool g_bDebug = false;
 bool g_bSkip_default_params = false;
@@ -179,6 +181,34 @@ std::string get_default_params(CXCursor cursor, int params_idx)
 
 	return default_val;
 }
+
+std::string function_name_conver(const std::string& name)
+{
+	static std::map<std::string, std::string> map_name =
+	{
+		{ "operator==","__eq" },
+		{ "operator==","__eq" },
+		{ "operator==","__eq" },
+		{ "operator==","__eq" },
+		{ "operator==","__eq" },
+		{ "operator==","__eq" },
+		{ "operator<=", "__le" },
+		{ "operator<", "__lt" },
+		{ "operator/", "__div" },
+		{ "operator-", "__sub" },
+		{ "operator+", "__add" },
+		{ "operator*", "__mul" },
+	};
+
+	auto itfind = map_name.find(name);
+	if (itfind != map_name.end())
+	{
+		return itfind->second;
+	}
+	else
+		return name;
+}
+
 
 void visit_function(CXCursor cursor, Visitor_Content* pContent)
 {
@@ -1174,7 +1204,7 @@ void visit_contnet(Visitor_Content* pContent, std::string& os, std::string& os_s
 				if (refData.is_static)
 					sprintf_s(szBuf, 4096, "lua_tinker::class_def_static<%s>(L, \"%s\",&%s%s);\n", pContent->getAccessName().c_str(), v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str(), def_params.c_str());
 				else
-					sprintf_s(szBuf, 4096, "lua_tinker::class_def<%s>(L, \"%s\",&%s%s);\n", pContent->getAccessName().c_str(), v.first.c_str(), (pContent->getAccessPrifix() + v.first).c_str(), def_params.c_str());
+					sprintf_s(szBuf, 4096, "lua_tinker::class_def<%s>(L, \"%s\",&%s%s);\n", pContent->getAccessName().c_str(), function_name_conver(v.first).c_str(), (pContent->getAccessPrifix() + v.first).c_str(), def_params.c_str());
 				os += szBuf;
 
 
