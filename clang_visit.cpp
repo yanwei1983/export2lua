@@ -1370,8 +1370,7 @@ void visit_contnet(Visitor_Content* pContent, std::string& os, std::string& os_s
 			std::string def_params;
 			for (const auto& dv : refData.default_val)
 			{
-				if (def_params.empty() == false)
-					def_params += ", ";
+				def_params += ", ";
 				def_params += dv;
 			}
 			sprintf_s(szBuf, 4096, "lua_tinker::class_con<%s>(L, lua_tinker::constructor<%s%s>::invoke%s);\n", pContent->getAccessName().c_str(), pContent->getAccessName().c_str(), refData.func_type.c_str(), def_params.c_str());	//normal
