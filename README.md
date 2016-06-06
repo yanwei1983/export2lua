@@ -35,6 +35,25 @@ export2lua[cppfile][-Iheaderdir] ...[-Iheaderdir]
 
 ***
 
+example:
+```
+读取tests/test.h文件，增加include作为头文件目录，结果重定向到a.txt
+export2lua tests/test.h -Iinclude > a.txt
+```
+```
+读取tests/test.h文件，增加include作为头文件目录，结果输出到a.txt
+export2lua tests/test.h -Iinclude --output=a.txt
+```
+```
+读取cpps.txt中列出的所有文件，增加header.txt中列出的所有目录作为头文件目录，结果输出到a.txt
+export2lua --cpps=cpps.txt --include=header.txt --output=a.txt
+```
+```
+读取cpps.txt中列出的所有文件，增加header.txt中列出的所有目录作为头文件目录，取消关键字查找改为全部导出, 导出类名必须包含在export.txt中， 结果输出到a.txt
+export2lua --cpps=cpps.txt --include=header.txt --output=a.txt --keyword= --exportclass=export.txt
+```
+
+
 
 
 
