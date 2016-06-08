@@ -194,7 +194,7 @@ std::string function_name_conver(const std::string& name)
 		{ "operator==","__eq" },
 		{ "operator<=", "__le" },
 		{ "operator<", "__lt" },
-		{ "operator/", "__div" },
+		{ "operator/", "__idiv" },
 		{ "operator-", "__sub" },
 		{ "operator+", "__add" },
 		{ "operator*", "__mul" },
